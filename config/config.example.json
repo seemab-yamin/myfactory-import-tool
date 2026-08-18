@@ -1,0 +1,14 @@
+{
+    "import": {
+        "default_delimiter": ",",
+        "batch_size": 100,
+        "skip_header": true
+    },
+    "mappings": {
+        "default": {
+            "SKU": "ArticleCode",
+            "Name": "Description",
+            "Price": "Price"
+        }
+    }
+}

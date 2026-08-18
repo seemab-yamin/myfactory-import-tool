@@ -24,3 +24,25 @@ cp config/.env.example config/.env
 # Run
 python src/main.py --file sample.csv --mapping default --dry-run
 python src/main.py --validate-config
+```
+
+## Usage
+```bash
+python src/main.py --file <csv> [--mapping <name>] [--dry-run] [--batch 100]
+```
+
+## Project Structure
+```
+src/               # Core logic
+config/            # config.json + .env
+logs/              # Import logs
+templates/         # Web UI
+```
+
+## Build EXE
+```bash
+pyinstaller --onefile --name myfactory-import src/main.py
+```
+
+## Logs
+`logs/import_YYYYMMDD_HHMMSS.log`
