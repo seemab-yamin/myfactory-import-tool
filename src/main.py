@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Myfactory Import Tool - CLI Entry Point
 
@@ -11,11 +10,11 @@ Usage:
 import argparse
 import sys
 from pathlib import Path
-from src.config_manager import ConfigManager
-from src.importer import MyfactoryImporter
-from src.logger import setup_logger
-from src.models import ImportStatus
 
+from config_manager import ConfigManager
+from importer import MyfactoryImporter
+from logger import setup_logger
+from models import ImportStatus
 
 def main():
     """Main CLI entry point"""
@@ -78,8 +77,6 @@ Examples:
         config = ConfigManager()
         print(f"✓ Config loaded: {Path('config/config.json').absolute()}")
         print(f"✓ Mapping names: {list(config.get('mappings', {}).keys())}")
-        db_config = config.get_database_config()
-        print(f"✓ Database: {db_config['server']} - {db_config['database']}")
         print("✓ Configuration valid!")
         sys.exit(0)
 
