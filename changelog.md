@@ -1,17 +1,22 @@
-# CHANGELOG
+# Changelog
 
-## [Unreleased]
-
+## [1.0.0] - 2026-08-18
 ### Added
-- Project scaffolding with modular structure (`src/`, `config/`, `templates/`)
-- CLI entry point (`src/main.py`) with argument parsing (`--file`, `--mapping`, `--dry-run`, `--batch`, `--validate-config`, `--verbose`)
-- Configuration management (`src/config_manager.py`) with JSON and `.env` support
-- Core import logic (`src/importer.py`) with CSV reading, delimiter detection, and dry-run mode
-- Field mapping (`src/mapper.py`) for CSV-to-Myfactory field transformation
-- Logging system (`src/logger.py`) with file and console handlers
-- Data models (`src/models.py`) for import status and results
-- Web UI placeholder (`src/web_ui.py` and `templates/index.html`)
-- Example configuration files (`config/config.example.json`, `config/.env.example`)
-- Dependencies list (`requirements.txt`) with pandas, python-dotenv, pydantic, etc.
-- PyInstaller setup (`setup.py`) for EXE packaging
-- `.gitignore` and `README.md`
+- CLI entry point with `--file`, `--mapping`, `--dry-run`, `--validate-config`
+- CSV reader with delimiter detection (`,`, `;`, `\t`)
+- Field mapping via `config.json` (saved per mapping name)
+- Config manager (`config.json` + `.env` secrets)
+- Logging with file + console output
+- Dry-run preview mode
+- `--validate-config` to check setup
+- PyInstaller support for EXE builds
+- Web UI stub (FastAPI + HTML template)
+
+### Fixed
+- Import errors: fixed `Mapping 'default' not found` — ensure `config.json` has `mappings.default`
+- Module imports: switched to relative imports (`from config_manager import`)
+- Added missing `get_database_config()` method in `ConfigManager`
+
+### Changed
+- Default mapping name: `default`
+- Logs stored in `logs/import_<timestamp>.log`
