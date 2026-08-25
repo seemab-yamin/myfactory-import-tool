@@ -35,6 +35,7 @@ from src.importer import get_importer
 from src.logger import get_logger
 from src.mapper import get_mapper
 from src.models import ImportStatus
+from src.schema_scanner import get_scanner
 
 logger = get_logger(__name__)
 
@@ -371,6 +372,14 @@ Examples:
     api_parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
     api_parser.set_defaults(func=cli_api)
 
+    schema_parser = subparsers.add_parser("schema", help="Show table schema")
+    schema_parser.add_argument("-t", "--table", default="tdProducts", help="Table name")
+    schema_parser.add_argument(
+        "--names-only", action="store_true", help="Show only column names"
+    )
+    schema_parser.add_argument("--refresh", action="store_true", help="Refresh cache")
+    schema_parser.set_defaults(func=cli_schema)
+
     return parser
 
 
@@ -388,6 +397,42 @@ def cli_api(args):
     import uvicorn
 
     uvicorn.run("src.main:app", host=args.host, port=args.port, reload=args.reload)
+
+
+def cli_schema(args):
+    """Show table schema."""
+    if not ensure_configured():
+        logger.error("Configuration not set up. Run 'python main.py setup' first.")
+        sys.exit(1)
+
+    scanner = get_scanner()
+
+    if args.refresh:
+        scanner.refresh_cache(args.table)
+        print(f"✅ Cache refreshed for {args.table}")
+        return
+
+    if not scanner.table_exists(args.table):
+        print(f"❌ Table '{args.table}' not found")
+        sys.exit(1)
+
+    if args.names_only:
+        names = scanner.get_column_names(args.table)
+        print(f"\n📋 Columns in {args.table}:")
+        print("=" * 40)
+        for name in names:
+            print(f"  - {name}")
+        print(f"\nTotal: {len(names)} columns")
+    else:
+        columns = scanner.get_table_schema(args.table)
+        print(f"\n📋 Schema for {args.table}:")
+        print("=" * 60)
+        print(f"{'Column Name':<30} {'Type':<20} {'Nullable'}")
+        print("-" * 60)
+        for col in columns:
+            nullable = "YES" if col.get("nullable", True) else "NO"
+            print(f"{col.get('name', ''):<30} {col.get('type', ''):<20} {nullable}")
+        print(f"\nTotal: {len(columns)} columns")
 
 
 # ========== FastAPI Application ==========
@@ -645,6 +690,70 @@ if FASTAPI_AVAILABLE:
         if not path.exists():
             raise HTTPException(status_code=404, detail="File not found")
         return FileResponse(path)
+
+    @app.get("/schema/{table_name}")
+    async def get_schema(
+        table_name: str, use_cache: bool = True, simplified: bool = False
+    ):
+        """Get schema for a table."""
+        if not ensure_configured():
+            raise HTTPException(
+                status_code=400, detail="Database not configured. Run setup first."
+            )
+
+        scanner = get_scanner()
+
+        if not scanner.table_exists(table_name):
+            raise HTTPException(
+                status_code=404, detail=f"Table '{table_name}' not found"
+            )
+
+        if simplified:
+            columns = scanner.get_columns_for_mapping(table_name, use_cache)
+        else:
+            columns = scanner.get_table_schema(table_name, use_cache)
+
+        return {
+            "table_name": table_name,
+            "total_columns": len(columns),
+            "columns": columns,
+        }
+
+    @app.get("/schema/{table_name}/columns")
+    async def get_column_names_only(table_name: str, use_cache: bool = True):
+        """Get only column names for a table."""
+        if not ensure_configured():
+            raise HTTPException(
+                status_code=400, detail="Database not configured. Run setup first."
+            )
+
+        scanner = get_scanner()
+
+        if not scanner.table_exists(table_name):
+            raise HTTPException(
+                status_code=404, detail=f"Table '{table_name}' not found"
+            )
+
+        return {
+            "table_name": table_name,
+            "columns": scanner.get_column_names(table_name, use_cache),
+        }
+
+    @app.post("/schema/refresh")
+    async def refresh_schema(table_name: Optional[str] = None):
+        """Refresh schema cache."""
+        if not ensure_configured():
+            raise HTTPException(
+                status_code=400, detail="Database not configured. Run setup first."
+            )
+
+        scanner = get_scanner()
+        scanner.refresh_cache(table_name)
+
+        return {
+            "status": "success",
+            "message": f"Cache refreshed for {table_name or 'all tables'}",
+        }
 
 
 # ========== Main Entrypoint ==========
