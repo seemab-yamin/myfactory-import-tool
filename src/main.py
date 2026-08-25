@@ -473,6 +473,7 @@ def cli_schema(args):
         console.print(f"[dim]Total: {len(columns)} columns[/dim]")
         console.print("\n" + "─" * 80 + "\n")
 
+
 # ========== FastAPI Application ==========
 
 if FASTAPI_AVAILABLE:
@@ -792,6 +793,31 @@ if FASTAPI_AVAILABLE:
             "status": "success",
             "message": f"Cache refreshed for {table_name or 'all tables'}",
         }
+
+    @app.get("/api/schema")
+    async def api_schema():
+        """Return JSON with both tdProducts and tdAttributeValues schemas."""
+        scanner = get_scanner()
+        return {
+            "tdProducts": scanner.get_table_schema("tdProducts", use_cache=True),
+            "tdAttributeValues": scanner.get_table_schema(
+                "tdAttributeValues", use_cache=True
+            ),
+        }
+
+    @app.get("/schema", response_class=HTMLResponse)
+    async def schema_page(request: Request):
+        """Render schema page with both tables."""
+        scanner = get_scanner()
+        schemas = {
+            "tdProducts": scanner.get_table_schema("tdProducts", use_cache=True),
+            "tdAttributeValues": scanner.get_table_schema(
+                "tdAttributeValues", use_cache=True
+            ),
+        }
+        return templates.TemplateResponse(
+            request, "schema.html", {"request": request, "schemas": schemas}
+        )
 
 
 # ========== Main Entrypoint ==========
