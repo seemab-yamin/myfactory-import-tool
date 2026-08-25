@@ -8,3 +8,4 @@ sqlalchemy
 openpyxl
 keyring
 python-multipart
+jinja2
