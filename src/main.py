@@ -44,7 +44,6 @@ logger = get_logger(__name__)
 
 def cli_import(args):
     """Import command: import file with supplier mapping."""
-    from src.importer import ImportConfigDTO
 
     if not ensure_configured():
         logger.error("Configuration not set up. Run 'python main.py setup' first.")

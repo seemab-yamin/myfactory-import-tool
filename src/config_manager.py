@@ -130,6 +130,10 @@ class AppSettings:
         else:
             return f"mssql+pyodbc://{self.db_username}:{self.db_password}@{self.db_server}/{self.db_database}?driver={self.db_driver}"
 
+    def get_default_supplier(self) -> str:
+        """Get default supplier from settings."""
+        return self.get().default_supplier
+
     def validate(self) -> Tuple[bool, str]:
         """Validate settings."""
         if not self.db_server:
@@ -367,7 +371,7 @@ class ConfigManager:
             )
             cursor = conn.cursor()
             cursor.execute("SELECT 1")
-            result = cursor.fetchone()
+            cursor.fetchone()
             conn.close()
             return True
         except Exception as e:

@@ -34,7 +34,12 @@ class MyfactoryImporter:
         - Audit logging
     """
 
-    def __init__(self, batch_size: int = 1000, table_name: str = None):
+    def __init__(
+        self,
+        batch_size: int = 1000,
+        table_name: str = None,
+        auto_fetch_mapping: bool = True,
+    ):
         """
         Initialize the importer.
 
@@ -42,6 +47,7 @@ class MyfactoryImporter:
             batch_size: Number of rows per batch
             table_name: Target table name (default from config)
         """
+        self.auto_fetch_mapping = auto_fetch_mapping
         self.batch_size = batch_size or get_config_manager().get().default_batch_size
         self.table_name = table_name or get_table_name()
         self.mapper = get_mapper()
@@ -96,7 +102,6 @@ class MyfactoryImporter:
         try:
             # 1. Read file
             df = self._read_file(config.file_path, config.delimiter)
-            total_rows = len(df)
 
             # 2. Get mapping
             if config.mapping:
@@ -107,7 +112,6 @@ class MyfactoryImporter:
                 mapping = self.mapper.get_mappings(
                     config.supplier_name, active_only=True
                 )
-
             if not mapping:
                 raise ValueError(
                     f"No mapping found for supplier '{config.supplier_name}'. "

@@ -270,7 +270,7 @@ class ImportConfigDTO:
     """Import configuration DTO."""
 
     file_path: str
-    mapping: Dict[str, str]
+    mapping: Optional[Dict[str, str]] = None
     delimiter: str = ","
     batch_size: int = 100
     dry_run: bool = False
