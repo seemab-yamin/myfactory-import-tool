@@ -1,14 +1,19 @@
 {
-    "import": {
-        "default_delimiter": ",",
-        "batch_size": 100,
-        "skip_header": true
-    },
-    "mappings": {
-        "default": {
-            "SKU": "ArticleCode",
-            "Name": "Description",
-            "Price": "Price"
-        }
-    }
+    "db_server": "TCS135\\SQLEXPRESS",
+    "db_database": "master",
+    "db_driver": "ODBC Driver 17 for SQL Server",
+    "db_trusted_connection": true,
+    "db_port": 1433,
+    "db_connection_timeout": 30,
+    "auth_method": "windows",
+    "default_table": "tdProducts",
+    "default_supplier": "default",
+    "default_delimiter": ",",
+    "default_batch_size": 1000,
+    "skip_header": true,
+    "log_level": "INFO",
+    "log_max_bytes": 5000000,
+    "log_backup_count": 3,
+    "app_name": "MyFactory Import Tool",
+    "app_version": "1.0.0"
 }
