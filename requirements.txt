@@ -1,3 +1,8 @@
 pandas
 pydantic
 python-dotenv
+pyodbc
+fastapi
+uvicorn
+sqlalchemy
+openpyxl

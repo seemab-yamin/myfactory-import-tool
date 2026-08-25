@@ -1,0 +1,114 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <title>MyFactory Import Tool</title>
+    <style>
+      body {
+        font-family: Arial;
+        max-width: 800px;
+        margin: 40px auto;
+      }
+      .container {
+        padding: 20px;
+        border: 1px solid #ddd;
+        border-radius: 8px;
+      }
+      .form-group {
+        margin: 10px 0;
+      }
+      label {
+        display: inline-block;
+        width: 100px;
+      }
+      input,
+      select {
+        padding: 5px;
+        width: 300px;
+      }
+      button {
+        padding: 8px 20px;
+        background: #007bff;
+        color: white;
+        border: none;
+        border-radius: 4px;
+        cursor: pointer;
+      }
+      .result {
+        margin-top: 20px;
+        background: #f8f9fa;
+        padding: 15px;
+        border-radius: 4px;
+      }
+      .error {
+        color: red;
+      }
+      .success {
+        color: green;
+      }
+    </style>
+  </head>
+  <body>
+    <div class="container">
+      <h1>🚀 MyFactory Import Tool</h1>
+      <p>Upload CSV/Excel files and import to Myfactory CRM</p>
+
+      <div id="status"></div>
+
+      <div class="form-group">
+        <label>File:</label>
+        <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
+      </div>
+
+      <div class="form-group">
+        <label>Supplier:</label>
+        <input type="text" id="supplierInput" value="default" placeholder="Supplier name" />
+      </div>
+
+      <div class="form-group">
+        <label>Dry run:</label>
+        <input type="checkbox" id="dryRunInput" checked />
+      </div>
+
+      <button onclick="uploadFile()">Upload & Import</button>
+
+      <div id="result" class="result"></div>
+    </div>
+
+    <script>
+      async function uploadFile() {
+        const fileInput = document.getElementById('fileInput')
+        const supplier = document.getElementById('supplierInput').value
+        const dryRun = document.getElementById('dryRunInput').checked
+        const resultDiv = document.getElementById('result')
+      
+        if (!fileInput.files.length) {
+          resultDiv.innerHTML = '<div class="error">Please select a file</div>'
+          return
+        }
+      
+        const formData = new FormData()
+        formData.append('file', fileInput.files[0])
+        formData.append('supplier', supplier)
+        formData.append('dry_run', dryRun)
+        formData.append('batch_size', 1000)
+      
+        resultDiv.innerHTML = '<div class="info">Uploading...</div>'
+      
+        try {
+          const response = await fetch('/upload', { method: 'POST', body: formData })
+          const data = await response.json()
+      
+          if (response.ok) {
+            let html = '<div class="success">✅ Import completed</div>'
+            html += `<pre>${JSON.stringify(data, null, 2)}</pre>`
+            resultDiv.innerHTML = html
+          } else {
+            resultDiv.innerHTML = `<div class="error">❌ Error: ${data.detail}</div>`
+          }
+        } catch (e) {
+          resultDiv.innerHTML = `<div class="error">❌ Error: ${e.message}</div>`
+        }
+      }
+    </script>
+  </body>
+</html>
