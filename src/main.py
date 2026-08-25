@@ -12,7 +12,12 @@ API Usage:
 
 import argparse
 import json
+import socket
 import sys
+import threading
+import time
+import webbrowser
+from datetime import datetime
 from pathlib import Path
 from typing import Optional
 
@@ -38,6 +43,74 @@ from src.models import ImportStatus
 from src.schema_scanner import get_scanner
 
 logger = get_logger(__name__)
+
+
+# ========== Helper Functions ==========
+
+
+def find_available_port(start_port: int = 8000) -> int:
+    """Find the first available port starting from start_port."""
+    port = start_port
+    while True:
+        with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+            try:
+                s.bind(("127.0.0.1", port))
+                return port
+            except OSError:
+                port += 1
+
+
+def launch_web_ui():
+    """Launch the FastAPI server and open browser."""
+    if not FASTAPI_AVAILABLE:
+        print(
+            "❌ FastAPI is not installed. Run: pip install fastapi uvicorn python-multipart"
+        )
+        sys.exit(1)
+
+    import uvicorn
+
+    # Check if configured
+    config = get_config_manager()
+    if not config.is_configured():
+        print("🔐 Database not configured. Starting setup...")
+        config.interactive_setup()
+        if not config.is_configured():
+            print("❌ Setup cancelled or failed. Exiting.")
+            sys.exit(1)
+
+    # Find available port
+    port = find_available_port(8000)
+
+    print(f"\n{'='*60}")
+    print(f"🚀 MyFactory Import Tool - Web UI")
+    print(f"{'='*60}")
+    print(f"✅ Starting server at: http://127.0.0.1:{port}")
+    print(f"📚 API docs at: http://127.0.0.1:{port}/docs")
+    print(f"{'='*60}\n")
+
+    # Start server in a separate thread
+    def run_server():
+        uvicorn.run("src.main:app", host="127.0.0.1", port=port, log_level="info")
+
+    server_thread = threading.Thread(target=run_server, daemon=True)
+    server_thread.start()
+
+    # Wait for server to start
+    time.sleep(2)
+
+    # Open browser
+    webbrowser.open(f"http://127.0.0.1:{port}")
+    print("🌐 Browser opened to Web UI")
+    print("Press Ctrl+C to stop the server\n")
+
+    # Keep main thread alive
+    try:
+        while True:
+            time.sleep(1)
+    except KeyboardInterrupt:
+        print("\n🛑 Shutting down server...")
+        sys.exit(0)
 
 
 # ========== CLI Entrypoint ==========
@@ -277,7 +350,7 @@ Examples:
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
-    subparsers.required = True
+    subparsers.required = False  # Make optional for auto-UI
 
     # Import command
     import_parser = subparsers.add_parser("import", help="Import a file")
@@ -477,8 +550,6 @@ def cli_schema(args):
 # ========== FastAPI Application ==========
 
 if FASTAPI_AVAILABLE:
-    from datetime import datetime
-
     from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
     from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
     from fastapi.staticfiles import StaticFiles
@@ -825,6 +896,11 @@ if FASTAPI_AVAILABLE:
 
 def main():
     """Main entrypoint for CLI."""
+    # If no arguments, launch Web UI
+    if len(sys.argv) == 1:
+        launch_web_ui()
+        return
+
     parser = create_parser()
     args = parser.parse_args()
 
