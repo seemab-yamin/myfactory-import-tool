@@ -372,14 +372,19 @@ Examples:
     api_parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
     api_parser.set_defaults(func=cli_api)
 
+    # Schema command
     schema_parser = subparsers.add_parser("schema", help="Show table schema")
     schema_parser.add_argument("-t", "--table", default="tdProducts", help="Table name")
     schema_parser.add_argument(
         "--names-only", action="store_true", help="Show only column names"
     )
     schema_parser.add_argument("--refresh", action="store_true", help="Refresh cache")
+    schema_parser.add_argument(
+        "--show-all",
+        action="store_true",
+        help="Show both tdProducts and tdAttributeValues schemas",
+    )
     schema_parser.set_defaults(func=cli_schema)
-
     return parser
 
 
@@ -400,40 +405,73 @@ def cli_api(args):
 
 
 def cli_schema(args):
-    """Show table schema."""
+    """Show table schema with rich formatting."""
+
     if not ensure_configured():
         logger.error("Configuration not set up. Run 'python main.py setup' first.")
         sys.exit(1)
 
+    from rich import box
+    from rich.console import Console
+    from rich.panel import Panel
+    from rich.table import Table
+
+    console = Console()
     scanner = get_scanner()
 
     if args.refresh:
         scanner.refresh_cache(args.table)
-        print(f"✅ Cache refreshed for {args.table}")
+        console.print(f"[green]✅ Cache refreshed for {args.table}[/green]")
         return
 
-    if not scanner.table_exists(args.table):
-        print(f"❌ Table '{args.table}' not found")
-        sys.exit(1)
-
-    if args.names_only:
-        names = scanner.get_column_names(args.table)
-        print(f"\n📋 Columns in {args.table}:")
-        print("=" * 40)
-        for name in names:
-            print(f"  - {name}")
-        print(f"\nTotal: {len(names)} columns")
+    # Determine which tables to scan
+    if args.show_all:
+        tables_to_scan = ["tdProducts", "tdAttributeValues"]
     else:
-        columns = scanner.get_table_schema(args.table)
-        print(f"\n📋 Schema for {args.table}:")
-        print("=" * 60)
-        print(f"{'Column Name':<30} {'Type':<20} {'Nullable'}")
-        print("-" * 60)
-        for col in columns:
-            nullable = "YES" if col.get("nullable", True) else "NO"
-            print(f"{col.get('name', ''):<30} {col.get('type', ''):<20} {nullable}")
-        print(f"\nTotal: {len(columns)} columns")
+        tables_to_scan = [args.table]
 
+    for table_name in tables_to_scan:
+        if not scanner.table_exists(table_name):
+            console.print(f"[yellow]⚠️ Table '{table_name}' not found[/yellow]")
+            continue
+
+        if args.names_only:
+            names = scanner.get_column_names(table_name)
+            console.print(f"\n[bold cyan]📋 Columns in {table_name}:[/bold cyan]")
+            for name in names:
+                console.print(f"  • [green]{name}[/green]")
+            console.print(f"\n[bold]Total: {len(names)} columns[/bold]")
+            continue
+
+        # Build Rich Table
+        columns = scanner.get_table_schema(table_name)
+
+        # Create table with box styling
+        table = Table(
+            title=f"[bold cyan]📊 Schema: {table_name}[/bold cyan]",
+            box=box.HEAVY,
+            border_style="bright_blue",
+            show_header=True,
+            header_style="bold magenta",
+        )
+
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Column Name", style="green", min_width=25)
+        table.add_column("Data Type", style="yellow", min_width=20)
+        table.add_column("Nullable", style="cyan", width=10)
+        table.add_column("Primary Key", style="red", width=12)
+
+        for idx, col in enumerate(columns, 1):
+            nullable = "YES" if col.get("nullable", True) else "NO"
+            pk = "✅" if col.get("primary_key", False) else "❌"
+            table.add_row(
+                str(idx), col.get("name", ""), col.get("type", ""), nullable, pk
+            )
+
+        console.print("\n")
+        console.print(table)
+        console.print(f"[dim]Total: {len(columns)} columns[/dim]")
+        console.print("\n" + "─" * 80 + "\n")
 
 # ========== FastAPI Application ==========
 
