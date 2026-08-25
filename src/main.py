@@ -393,7 +393,6 @@ def cli_api(args):
 # ========== FastAPI Application ==========
 
 if FASTAPI_AVAILABLE:
-    import shutil
     from datetime import datetime
 
     from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile

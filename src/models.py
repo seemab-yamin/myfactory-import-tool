@@ -264,7 +264,6 @@ class ImportSettings(Base):
 
 # === Data Transfer Objects (DTOs) for import/export ===
 
-
 @dataclass
 class ImportConfigDTO:
     """Import configuration DTO."""
