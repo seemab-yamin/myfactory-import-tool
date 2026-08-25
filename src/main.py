@@ -421,7 +421,9 @@ if FASTAPI_AVAILABLE:
     async def index(request: Request):
         """Home page."""
         if templates:
-            return templates.TemplateResponse("index.html", {"request": request})
+            return templates.TemplateResponse(
+                request, "index.html", {"request": request}
+            )
         return HTMLResponse("""
             <h1>MyFactory Import Tool</h1>
             <p>API is running. Visit <a href="/docs">/docs</a> for API documentation.</p>
