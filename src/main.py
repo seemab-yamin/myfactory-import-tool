@@ -671,9 +671,31 @@ if FASTAPI_AVAILABLE:
             "file_name": file.filename,
         }
 
-    @app.get("/mappings/{supplier}")
-    async def get_mappings(supplier: str, active_only: bool = True):
-        """Get mappings for a supplier."""
+    # ========== Mappings API Endpoints ==========
+    @app.get("/api/mappings/all")
+    async def api_get_all_mappings():
+        """Return all mappings grouped by supplier."""
+        if not ensure_configured():
+            raise HTTPException(
+                status_code=400, detail="Database not configured. Run setup first."
+            )
+
+        mapper = get_mapper()
+        suppliers = mapper.get_all_suppliers()
+
+        result = {}
+        for supplier in suppliers:
+            mappings = mapper.get_mappings(supplier, active_only=False)
+            result[supplier] = mappings
+
+        return {
+            "total_suppliers": len(result),
+            "mappings": result,
+        }
+
+    @app.get("/api/mappings/{supplier}")
+    async def api_get_mappings(supplier: str, active_only: bool = True):
+        """Return full mapping for a specific supplier."""
         if not ensure_configured():
             raise HTTPException(
                 status_code=400, detail="Database not configured. Run setup first."
@@ -689,8 +711,8 @@ if FASTAPI_AVAILABLE:
             "mappings": mappings,
         }
 
-    @app.post("/mappings/{supplier}")
-    async def save_mapping(
+    @app.post("/api/mappings/{supplier}")
+    async def api_save_mapping(
         supplier: str,
         source_field: str = Form(...),
         target_field: str = Form(...),
@@ -703,7 +725,7 @@ if FASTAPI_AVAILABLE:
             )
 
         mapper = get_mapper()
-        mapping = mapper.save_mapping(supplier, source_field, target_field, active)
+        mapper.save_mapping(supplier, source_field, target_field, active)
 
         return {
             "status": "created",
@@ -713,8 +735,8 @@ if FASTAPI_AVAILABLE:
             "active": active,
         }
 
-    @app.delete("/mappings/{supplier}/{source_field}")
-    async def delete_mapping(supplier: str, source_field: str):
+    @app.delete("/api/mappings/{supplier}/{source_field}")
+    async def api_delete_mapping(supplier: str, source_field: str):
         """Delete a mapping for a supplier."""
         if not ensure_configured():
             raise HTTPException(
@@ -763,12 +785,12 @@ if FASTAPI_AVAILABLE:
 
             if not audit:
                 raise HTTPException(status_code=404, detail="Audit record not found")
-
             return audit.to_dict()
 
-    @app.get("/suppliers")
-    async def get_suppliers():
-        """Get all suppliers with mappings."""
+    # ========== Suppliers API Endpoints ==========
+    @app.get("/api/suppliers")
+    async def api_get_suppliers():
+        """Return list of all supplier names with mappings."""
         if not ensure_configured():
             raise HTTPException(
                 status_code=400, detail="Database not configured. Run setup first."
@@ -781,6 +803,26 @@ if FASTAPI_AVAILABLE:
             "suppliers": suppliers,
             "total": len(suppliers),
         }
+
+    @app.get("/suppliers", response_class=HTMLResponse)
+    async def suppliers_list_page(request: Request):
+        """Render suppliers list page."""
+        if not templates:
+            return HTMLResponse("Templates not found. Please check template directory.")
+
+        return templates.TemplateResponse(
+            request, "suppliers.html", {"request": request, "supplier": None}
+        )
+
+    @app.get("/suppliers/{supplier_name}", response_class=HTMLResponse)
+    async def suppliers_page(request: Request, supplier_name: Optional[str] = None):
+        """Render suppliers page with list and detail views."""
+        if not templates:
+            return HTMLResponse("Templates not found. Please check template directory.")
+
+        return templates.TemplateResponse(
+            request, "suppliers.html", {"request": request, "supplier": supplier_name}
+        )
 
     @app.post("/setup")
     async def run_setup():
