@@ -101,7 +101,7 @@ function renderPreview(preview) {
     `).join('');
 }
 
-// ===== Build Mapping UI =====
+// ===== Build Mapping UI (Database → File) with Sorting =====
 function buildMappingUI(targetCols, fileCols) {
     const area = document.getElementById('mappingArea');
     const noFile = document.getElementById('noFileMessage');
@@ -113,8 +113,17 @@ function buildMappingUI(targetCols, fileCols) {
     // Reset mappings
     currentMappings = {};
 
+    // 🔥 Sort: mandatory fields (nullable === false) first
+    const sortedTargetCols = [...targetCols].sort((a, b) => {
+        const aRequired = a.nullable === false;
+        const bRequired = b.nullable === false;
+        if (aRequired && !bRequired) return -1;
+        if (!aRequired && bRequired) return 1;
+        return 0;
+    });
+
     let html = '';
-    targetCols.forEach((col, index) => {
+    sortedTargetCols.forEach((col, index) => {
         const isMandatory = col.nullable === false;
         const isPrimaryKey = col.primary_key || false;
 
