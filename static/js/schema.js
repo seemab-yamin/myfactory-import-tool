@@ -20,10 +20,17 @@ async function loadSchema() {
 
 function renderSchema(data) {
     let html = '';
-    for (const [tableName, columns] of Object.entries(data)) {
+    const entries = Object.entries(data);
+
+    if (entries.length === 0) {
+        container.innerHTML = `<div class="alert alert-warning">⚠️ No tables found.</div>`;
+        return;
+    }
+
+    for (const [tableName, columns] of entries) {
         html += `<h2 class="mt-4">📋 ${tableName}</h2>`;
         if (!columns || columns.length === 0) {
-            html += `<div class="alert alert-warning">⚠️ Table not found or no columns.</div>`;
+            html += `<div class="alert alert-warning">⚠️ Table '${tableName}' not found or has no columns.</div>`;
             continue;
         }
         html += `

@@ -947,12 +947,21 @@ if FASTAPI_AVAILABLE:
     async def api_schema():
         """Return JSON with both tdProducts and tdAttributeValues schemas."""
         scanner = get_scanner()
-        return {
-            "tdProducts": scanner.get_table_schema("tdProducts", use_cache=True),
-            "tdAttributeValues": scanner.get_table_schema(
-                "tdAttributeValues", use_cache=True
-            ),
-        }
+        result = {}
+        # Safely fetch each table
+        tables = ["tdProducts", "tdAttributeValues"]
+        for table in tables:
+            try:
+                if scanner.table_exists(table):
+                    result[table] = scanner.get_table_schema(table, use_cache=True)
+                else:
+                    result[table] = []  # Table doesn't exist → empty array
+            except Exception as e:
+                # Log error and return empty array for this table
+                logger.warning(f"Failed to fetch schema for {table}: {e}")
+                result[table] = []
+
+        return result
 
     @app.get("/schema", response_class=HTMLResponse)
     async def schema_page(request: Request):
