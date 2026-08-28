@@ -61,13 +61,13 @@
     <!-- ===== STEP 3: Column Mapping ===== -->
     <div class="card mb-4">
       <div class="card-header bg-light">
-        <strong>Step 3:</strong> Map Columns → Product Fields
+        <strong>Step 3:</strong> Map Product Fields → File Columns
         <span class="badge bg-warning text-dark ms-2" id="mappingStatus">0 mapped</span>
       </div>
       <div class="card-body">
         <div id="mappingArea" style="display:none;">
           <p class="text-muted">
-            Map each column from your file to a product table field.
+            For each <strong>product table field</strong>, select the corresponding column from your uploaded file.
             <span class="text-danger">*</span> indicates mandatory fields.
           </p>
 
@@ -76,10 +76,12 @@
               <thead class="table-light">
                 <tr>
                   <th style="width:30px;">#</th>
-                  <th style="width:40%;">Source Column (from file)</th>
+                  <th style="width:35%;">
+                    Product Field <span class="text-danger">*</span>
+                  </th>
                   <th style="width:5%;"></th>
-                  <th style="width:40%;">Target Field (product table)</th>
-                  <th style="width:15%;">Required</th>
+                  <th style="width:40%;">Map to File Column</th>
+                  <th style="width:15%;">Status</th>
                 </tr>
               </thead>
               <tbody id="mappingTableBody">

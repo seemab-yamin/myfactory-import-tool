@@ -1,17 +1,27 @@
 // ===== State =====
 let parsedColumns = [];
-let targetColumns = [];
-let mandatoryFields = ['ProductID', 'ProductNumber']; // Add required fields
+let targetColumns = [];           // Full schema: [{name, nullable, type, ...}]
+let targetColumnNames = [];       // Just names for dropdown
+let mandatoryFields = [];         // Dynamic: fields where nullable === false
 let currentMappings = {};
 let supplierExists = false;
 
-// ===== Fetch Target Schema =====
+// ===== Fetch Target Schema (Full) =====
 async function fetchTargetSchema() {
     try {
-        const response = await fetch('/schema/tdProducts/columns');
+        // Use the full schema endpoint with simplified=false to get nullable info
+        const response = await fetch('/schema/tdProducts?simplified=false');
         if (!response.ok) throw new Error('Failed to fetch schema');
         const data = await response.json();
         targetColumns = data.columns || [];
+        targetColumnNames = targetColumns.map(c => c.name);
+
+        // Dynamically determine mandatory fields (NOT NULL)
+        mandatoryFields = targetColumns
+            .filter(c => c.nullable === false)
+            .map(c => c.name);
+
+        console.log(`Found ${targetColumns.length} fields, ${mandatoryFields.length} mandatory`);
         return targetColumns;
     } catch (e) {
         console.error('Error fetching schema:', e);
@@ -56,8 +66,8 @@ async function parseSampleFile() {
         previewDiv.style.display = 'block';
         renderPreview(preview);
 
-        // Build mapping UI
-        buildMappingUI(parsedColumns);
+        // Build mapping UI (Database → File)
+        buildMappingUI(targetColumns, parsedColumns);
 
         statusDiv.innerHTML = `<span class="text-success">✅ Parsed ${parsedColumns.length} columns</span>`;
         showToast('Success', `Parsed ${parsedColumns.length} columns`, 'success');
@@ -68,6 +78,7 @@ async function parseSampleFile() {
     }
 }
 
+// ===== Build Mapping UI (Database → File) =====
 // ===== Render Preview =====
 function renderPreview(preview) {
     const head = document.getElementById('previewHead');
@@ -91,7 +102,7 @@ function renderPreview(preview) {
 }
 
 // ===== Build Mapping UI =====
-function buildMappingUI(columns) {
+function buildMappingUI(targetCols, fileCols) {
     const area = document.getElementById('mappingArea');
     const noFile = document.getElementById('noFileMessage');
     const tbody = document.getElementById('mappingTableBody');
@@ -103,21 +114,30 @@ function buildMappingUI(columns) {
     currentMappings = {};
 
     let html = '';
-    columns.forEach((col, index) => {
-        const isMandatory = mandatoryFields.includes(col);
+    targetCols.forEach((col, index) => {
+        const isMandatory = col.nullable === false;
+        const isPrimaryKey = col.primary_key || false;
+
         html += `
             <tr>
                 <td>${index + 1}</td>
-                <td><strong>${col}</strong> ${isMandatory ? '<span class="text-danger">*</span>' : ''}</td>
+                <td>
+                    <strong>${col.name}</strong>
+                    ${isMandatory ? '<span class="text-danger">*</span>' : ''}
+                    ${isPrimaryKey ? ' <span class="badge bg-primary">PK</span>' : ''}
+                    <br><span class="text-muted small">${col.type || ''}</span>
+                </td>
                 <td><i class="bi bi-arrow-right text-primary"></i></td>
                 <td>
-                    <select class="form-select form-select-sm target-select" data-source="${col}">
+                    <select class="form-select form-select-sm target-select" data-target="${col.name}">
                         <option value="">— ignore —</option>
-                        ${targetColumns.map(tc => `<option value="${tc}">${tc}</option>`).join('')}
+                        ${fileCols.map(fc => `<option value="${fc}">${fc}</option>`).join('')}
                     </select>
                 </td>
                 <td>
-                    ${isMandatory ? '<span class="badge bg-danger">Required</span>' : '<span class="badge bg-secondary">Optional</span>'}
+                    ${isMandatory
+                ? '<span class="badge bg-danger">Required</span>'
+                : '<span class="badge bg-secondary">Optional</span>'}
                 </td>
             </tr>
         `;
@@ -125,15 +145,15 @@ function buildMappingUI(columns) {
 
     tbody.innerHTML = html;
 
-    // Add change listeners to update mapping status
+    // Add change listeners
     document.querySelectorAll('.target-select').forEach(select => {
         select.addEventListener('change', function () {
-            const source = this.dataset.source;
-            const target = this.value;
-            if (target) {
-                currentMappings[source] = target;
+            const targetField = this.dataset.target;
+            const sourceColumn = this.value;
+            if (sourceColumn) {
+                currentMappings[targetField] = sourceColumn;
             } else {
-                delete currentMappings[source];
+                delete currentMappings[targetField];
             }
             updateMappingStatus();
         });
@@ -150,12 +170,11 @@ function showMandatorySummary() {
     const summaryDiv = document.getElementById('mandatorySummary');
     const listSpan = document.getElementById('mandatoryList');
 
-    // Get mandatory fields that exist in the file
-    const fileMandatory = mandatoryFields.filter(f => parsedColumns.includes(f));
-
-    if (fileMandatory.length) {
+    if (mandatoryFields.length) {
         summaryDiv.style.display = 'block';
-        listSpan.innerHTML = fileMandatory.map(f => `<span class="badge bg-danger me-1">${f}</span>`).join('');
+        listSpan.innerHTML = mandatoryFields.map(f =>
+            `<span class="badge bg-danger me-1">${f}</span>`
+        ).join('');
     } else {
         summaryDiv.style.display = 'none';
     }
@@ -167,16 +186,16 @@ function updateMappingStatus() {
     const saveBtn = document.getElementById('saveBtn');
 
     const totalMapped = Object.keys(currentMappings).length;
-    const totalColumns = parsedColumns.length;
+    const totalRequired = mandatoryFields.length;
 
     // Check if all mandatory fields are mapped
-    const fileMandatory = mandatoryFields.filter(f => parsedColumns.includes(f));
-    const mandatoryMapped = fileMandatory.every(f => currentMappings[f] && currentMappings[f] !== '');
+    const mandatoryMapped = mandatoryFields.every(f =>
+        currentMappings[f] && currentMappings[f] !== ''
+    );
 
-    const allMapped = fileMandatory.every(f => currentMappings[f] && currentMappings[f] !== '');
-    const canSave = allMapped && totalMapped > 0;
+    const canSave = mandatoryMapped && totalMapped > 0;
 
-    statusBadge.textContent = `${totalMapped}/${totalColumns} mapped`;
+    statusBadge.textContent = `${totalMapped}/${targetColumns.length} mapped (${totalMapped}/${totalRequired} required)`;
     statusBadge.className = `badge ${canSave ? 'bg-success' : 'bg-warning text-dark'}`;
 
     saveBtn.disabled = !canSave;
@@ -188,38 +207,33 @@ async function saveMappings() {
     const saveBtn = document.getElementById('saveBtn');
     const statusDiv = document.getElementById('saveStatus');
 
-    // Validate supplier name
     if (!supplierName) {
         showToast('Error', 'Please enter a supplier name', 'danger');
         document.getElementById('supplierName').focus();
         return;
     }
 
-    // Check if supplier already exists
     if (supplierExists) {
         showToast('Error', 'Supplier name already exists. Please choose a different name.', 'danger');
         return;
     }
 
-    // Validate mappings
-    const fileMandatory = mandatoryFields.filter(f => parsedColumns.includes(f));
-    const missingMandatory = fileMandatory.filter(f => !currentMappings[f] || currentMappings[f] === '');
-
+    // Check mandatory mappings
+    const missingMandatory = mandatoryFields.filter(f => !currentMappings[f] || currentMappings[f] === '');
     if (missingMandatory.length) {
         showToast('Error', `Missing required fields: ${missingMandatory.join(', ')}`, 'danger');
         return;
     }
 
-    // Save
     saveBtn.disabled = true;
     statusDiv.innerHTML = '<span class="text-info">⏳ Saving mappings...</span>';
 
     try {
-        // Save each mapping
-        for (const [source, target] of Object.entries(currentMappings)) {
+        // Save each mapping (Database Field → File Column)
+        for (const [targetField, sourceColumn] of Object.entries(currentMappings)) {
             const formData = new FormData();
-            formData.append('source_field', source);
-            formData.append('target_field', target);
+            formData.append('source_field', sourceColumn);      // File column
+            formData.append('target_field', targetField);      // Database field
             formData.append('active', 'true');
 
             const response = await fetch(`/api/mappings/${supplierName}`, {
@@ -236,7 +250,6 @@ async function saveMappings() {
         statusDiv.innerHTML = '<span class="text-success">✅ Mappings saved successfully!</span>';
         showToast('Success', `Mappings saved for ${supplierName}`, 'success');
 
-        // Redirect after 2 seconds
         setTimeout(() => {
             window.location.href = `/suppliers/${encodeURIComponent(supplierName)}`;
         }, 1500);
@@ -264,7 +277,6 @@ async function checkSupplierName() {
         const response = await fetch(`/api/mappings/${name}`);
         if (response.ok) {
             const data = await response.json();
-            // Supplier exists if there is at least one mapping
             const exists = data.summary && data.summary.total > 0;
             if (exists) {
                 input.classList.add('is-invalid');
@@ -278,16 +290,13 @@ async function checkSupplierName() {
                 supplierExists = false;
             }
         } else {
-            // If the endpoint fails (e.g., 404), assume it's available
             input.classList.remove('is-invalid');
             input.classList.add('is-valid');
             feedback.textContent = '✅ Name is available';
             supplierExists = false;
         }
     } catch (e) {
-        // Network error – assume available (or show warning)
-        input.classList.remove('is-invalid');
-        input.classList.remove('is-valid');
+        input.classList.remove('is-invalid', 'is-valid');
         feedback.textContent = '⚠️ Could not verify availability. Please try again.';
         supplierExists = false;
     }
@@ -298,7 +307,19 @@ function checkAvailability() {
     checkSupplierName();
 }
 
-// ===== Reset Form =====
+
+// ===== Init =====
+document.addEventListener('DOMContentLoaded', async function () {
+    await fetchTargetSchema();
+
+    document.getElementById('supplierName').addEventListener('input', checkSupplierName);
+    document.getElementById('sampleFile').addEventListener('change', function () {
+        if (this.files.length) {
+            document.getElementById('parseFileBtn').click();
+        }
+    });
+});
+
 function resetForm() {
     document.getElementById('supplierName').value = '';
     document.getElementById('sampleFile').value = '';
@@ -314,34 +335,3 @@ function resetForm() {
     parsedColumns = [];
     currentMappings = {};
 }
-
-// ===== Init =====
-document.addEventListener('DOMContentLoaded', async function () {
-    await fetchTargetSchema();
-
-    // Supplier name validation on input
-    document.getElementById('supplierName').addEventListener('input', checkSupplierName);
-
-    // Enter key on supplier name triggers file upload
-    document.getElementById('supplierName').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            document.getElementById('parseFileBtn').click();
-        }
-    });
-
-    // Enter key on file input triggers parse
-    document.getElementById('sampleFile').addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') {
-            e.preventDefault();
-            document.getElementById('parseFileBtn').click();
-        }
-    });
-
-    // Auto-parse when file is selected
-    document.getElementById('sampleFile').addEventListener('change', function () {
-        if (this.files.length) {
-            document.getElementById('parseFileBtn').click();
-        }
-    });
-});

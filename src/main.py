@@ -844,11 +844,39 @@ if FASTAPI_AVAILABLE:
             raise HTTPException(status_code=404, detail="File not found")
         return FileResponse(path)
 
-    @app.get("/schema/{table_name}")
+    from typing import List, Optional
+
+    from pydantic import BaseModel
+
+    class ColumnSchema(BaseModel):
+        name: str
+        type: str
+        nullable: bool
+        primary_key: Optional[bool] = False
+        max_length: Optional[int] = None
+        default: Optional[str] = None
+
+    class TableSchemaResponse(BaseModel):
+        table_name: str
+        total_columns: int
+        columns: List[ColumnSchema]
+
+    @app.get("/schema/{table_name}", response_model=TableSchemaResponse)
     async def get_schema(
-        table_name: str, use_cache: bool = True, simplified: bool = False
+        table_name: str = "tdProducts",  # ← Default if not provided
+        use_cache: bool = True,
+        simplified: bool = False,
+        refresh_cache: bool = False,  # ← New: force refresh
     ):
-        """Get schema for a table."""
+        """
+        Get schema for a table.
+
+        - **table_name**: Name of the table (default: tdProducts)
+        - **use_cache**: Use cached columns if available
+        - **simplified**: Return only name + type (for mapping UI)
+        - **refresh_cache**: Force refresh the cache
+        """
+
         if not ensure_configured():
             raise HTTPException(
                 status_code=400, detail="Database not configured. Run setup first."
@@ -856,16 +884,23 @@ if FASTAPI_AVAILABLE:
 
         scanner = get_scanner()
 
+        # Force refresh if requested
+        if refresh_cache:
+            scanner.refresh_cache(table_name)
+
         if not scanner.table_exists(table_name):
             raise HTTPException(
-                status_code=404, detail=f"Table '{table_name}' not found"
+                status_code=404,
+                detail=f"Table '{table_name}' not found in the database.",
             )
 
+        # Get columns based on mode
         if simplified:
+            # Simplified: only name and type (for dropdowns)
             columns = scanner.get_columns_for_mapping(table_name, use_cache)
         else:
+            # Full schema: includes nullable, primary_key, etc.
             columns = scanner.get_table_schema(table_name, use_cache)
-
         return {
             "table_name": table_name,
             "total_columns": len(columns),
