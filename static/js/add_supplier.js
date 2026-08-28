@@ -127,7 +127,7 @@ function buildMappingUI(columns) {
 
     // Add change listeners to update mapping status
     document.querySelectorAll('.target-select').forEach(select => {
-        select.addEventListener('change', function() {
+        select.addEventListener('change', function () {
             const source = this.dataset.source;
             const target = this.value;
             if (target) {
@@ -252,8 +252,8 @@ async function saveMappings() {
 async function checkSupplierName() {
     const input = document.getElementById('supplierName');
     const feedback = document.getElementById('supplierNameFeedback');
-
     const name = input.value.trim();
+
     if (!name) {
         input.classList.remove('is-invalid', 'is-valid');
         supplierExists = false;
@@ -262,25 +262,40 @@ async function checkSupplierName() {
 
     try {
         const response = await fetch(`/api/mappings/${name}`);
-        if (response.status === 200) {
-            // Supplier exists
-            input.classList.add('is-invalid');
-            input.classList.remove('is-valid');
-            feedback.textContent = '⚠️ This supplier name already exists. Please choose a different name.';
-            supplierExists = true;
-        } else if (response.status === 404) {
-            // Supplier doesn't exist
+        if (response.ok) {
+            const data = await response.json();
+            // Supplier exists if there is at least one mapping
+            const exists = data.summary && data.summary.total > 0;
+            if (exists) {
+                input.classList.add('is-invalid');
+                input.classList.remove('is-valid');
+                feedback.textContent = '⚠️ This supplier name already exists. Please choose a different name.';
+                supplierExists = true;
+            } else {
+                input.classList.remove('is-invalid');
+                input.classList.add('is-valid');
+                feedback.textContent = '✅ Name is available';
+                supplierExists = false;
+            }
+        } else {
+            // If the endpoint fails (e.g., 404), assume it's available
             input.classList.remove('is-invalid');
             input.classList.add('is-valid');
             feedback.textContent = '✅ Name is available';
             supplierExists = false;
         }
     } catch (e) {
-        // Network error, assume it's available
+        // Network error – assume available (or show warning)
         input.classList.remove('is-invalid');
         input.classList.remove('is-valid');
+        feedback.textContent = '⚠️ Could not verify availability. Please try again.';
         supplierExists = false;
     }
+}
+
+// ===== Manual Check Availability =====
+function checkAvailability() {
+    checkSupplierName();
 }
 
 // ===== Reset Form =====
@@ -301,14 +316,14 @@ function resetForm() {
 }
 
 // ===== Init =====
-document.addEventListener('DOMContentLoaded', async function() {
+document.addEventListener('DOMContentLoaded', async function () {
     await fetchTargetSchema();
 
     // Supplier name validation on input
     document.getElementById('supplierName').addEventListener('input', checkSupplierName);
 
     // Enter key on supplier name triggers file upload
-    document.getElementById('supplierName').addEventListener('keydown', function(e) {
+    document.getElementById('supplierName').addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
             e.preventDefault();
             document.getElementById('parseFileBtn').click();
@@ -316,7 +331,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     });
 
     // Enter key on file input triggers parse
-    document.getElementById('sampleFile').addEventListener('keydown', function(e) {
+    document.getElementById('sampleFile').addEventListener('keydown', function (e) {
         if (e.key === 'Enter') {
             e.preventDefault();
             document.getElementById('parseFileBtn').click();
@@ -324,7 +339,7 @@ document.addEventListener('DOMContentLoaded', async function() {
     });
 
     // Auto-parse when file is selected
-    document.getElementById('sampleFile').addEventListener('change', function() {
+    document.getElementById('sampleFile').addEventListener('change', function () {
         if (this.files.length) {
             document.getElementById('parseFileBtn').click();
         }

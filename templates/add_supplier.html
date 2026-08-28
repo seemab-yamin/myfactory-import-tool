@@ -17,7 +17,10 @@
         <div class="row">
           <div class="col-md-6">
             <label for="supplierName" class="form-label">Supplier Name <span class="text-danger">*</span></label>
-            <input type="text" id="supplierName" class="form-control" placeholder="e.g., ACME Corp" required />
+            <div class="input-group">
+              <input type="text" id="supplierName" class="form-control" placeholder="e.g., ACME Corp" required />
+              <button class="btn btn-outline-secondary" type="button" onclick="checkAvailability()"><i class="bi bi-check-circle"></i> Check</button>
+            </div>
             <div id="supplierNameFeedback" class="invalid-feedback"></div>
             <div class="form-text">This name must be unique and will be used to identify this supplier in imports.</div>
           </div>
