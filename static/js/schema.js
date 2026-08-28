@@ -6,7 +6,7 @@ async function loadSchema() {
         const response = await fetch('/api/schema');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-        renderSchema(data);
+        renderSchema(data, container);  // ← Pass container here
         document.getElementById('lastUpdated').textContent = new Date().toLocaleString();
     } catch (error) {
         container.innerHTML = `
@@ -18,7 +18,7 @@ async function loadSchema() {
     }
 }
 
-function renderSchema(data) {
+function renderSchema(data, container) {  // ← Accept container as parameter
     let html = '';
     const entries = Object.entries(data);
 
