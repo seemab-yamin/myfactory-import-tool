@@ -16,13 +16,7 @@ from src.logger import get_logger
 logger = get_logger(__name__)
 
 # App data directory (for local SQLite DB)
-APP_NAME = "MyFactoryImporter"
-if sys.platform == "win32":
-    APPDATA_DIR = Path(os.environ.get("APPDATA", "")) / APP_NAME
-else:
-    APPDATA_DIR = Path.home() / ".config" / APP_NAME
-
-LOCAL_DB_DIR = APPDATA_DIR / "data"
+LOCAL_DB_DIR = Path("data")
 LOCAL_DB_PATH = LOCAL_DB_DIR / "mappings.db"
 LOCAL_DB_URL = f"sqlite:///{LOCAL_DB_PATH}"
 
@@ -184,7 +178,7 @@ class DatabaseManager:
 
             with engine.connect() as conn:
                 result = conn.execute(text("SELECT 1"))
-                row = result.fetchone()
+                result.fetchone()
                 logger.info("✅ Myfactory connection successful")
                 return True
         except Exception as e:

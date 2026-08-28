@@ -9,12 +9,7 @@ from pathlib import Path
 from typing import Any, Dict, Optional
 
 # Constants
-APP_NAME = "MyFactoryImporter"
-LOG_DIR = (
-    Path.home() / "AppData" / "Roaming" / APP_NAME / "logs"
-    if sys.platform == "win32"
-    else Path.home() / ".config" / APP_NAME / "logs"
-)
+LOG_DIR = Path("logs")
 
 
 class JSONFormatter(logging.Formatter):
@@ -152,7 +147,6 @@ def setup_logger(
             "extra": {
                 "log_level": log_level,
                 "log_file": str(log_file) if log_to_file else None,
-                "app_name": APP_NAME,
             }
         },
     )
