@@ -115,3 +115,9 @@ pre {
     max-height: 300px;
     overflow-y: auto;
 }
+/* ===== New Supplier Input ===== */
+#newSupplierInput {
+    margin-top: 6px;
+    width: 250px !important;
+    display: none;
+}

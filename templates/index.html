@@ -7,6 +7,7 @@
   <p>Upload CSV/Excel files and import to Myfactory CRM</p>
 
   <div id="status"></div>
+
   <div class="form-group">
     <label>File:</label>
     <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
@@ -14,11 +15,11 @@
   <div class="form-group">
     <label>Supplier:</label>
     <select id="supplierInput" class="form-select" style="width:auto; display:inline-block;">
-      <option value="default">default</option>
       {% for supplier in suppliers %}
         <option value="{{ supplier }}">{{ supplier }}</option>
       {% endfor %}
     </select>
+    <input type="text" id="newSupplierInput" class="form-control" style="width:250px; display:none; margin-top:6px;" placeholder="Enter new supplier name" />
   </div>
   <div class="form-group">
     <label>Dry run:</label>

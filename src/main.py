@@ -486,7 +486,6 @@ def cli_schema(args):
 
     from rich import box
     from rich.console import Console
-    from rich.panel import Panel
     from rich.table import Table
 
     console = Console()
@@ -932,6 +931,64 @@ if FASTAPI_AVAILABLE:
         }
         return templates.TemplateResponse(
             request, "schema.html", {"request": request, "schemas": schemas}
+        )
+
+    @app.post("/api/parse-sample")
+    async def parse_sample_file(file: UploadFile = File(...)):
+        """Parse uploaded file and return column names + preview."""
+        from io import BytesIO
+
+        import pandas as pd
+
+        try:
+            content = await file.read()
+
+            # Determine file type
+            filename = file.filename.lower()
+            if filename.endswith(".csv"):
+                df = pd.read_csv(BytesIO(content))
+            elif filename.endswith((".xlsx", ".xls")):
+                df = pd.read_excel(BytesIO(content))
+            else:
+                raise HTTPException(
+                    status_code=400,
+                    detail="Unsupported file type. Please upload CSV or Excel.",
+                )
+
+            if df.empty:
+                raise HTTPException(status_code=400, detail="File is empty")
+
+            # Get columns
+            columns = list(df.columns)
+
+            # Get preview (first 5 rows)
+            preview = (
+                df.head(5)
+                .replace({pd.NA: None, float("nan"): None})
+                .to_dict(orient="records")
+            )
+
+            return {
+                "columns": columns,
+                "preview": preview,
+                "row_count": len(df),
+                "column_count": len(columns),
+            }
+
+        except Exception as e:
+            logger.error(f"Parse error: {e}")
+            raise HTTPException(
+                status_code=400, detail=f"Failed to parse file: {str(e)}"
+            )
+
+    @app.get("/add-supplier", response_class=HTMLResponse)
+    async def add_supplier_page(request: Request):
+        """Render the add supplier mapping page."""
+        if not templates:
+            return HTMLResponse("Templates not found.")
+
+        return templates.TemplateResponse(
+            request, "add_supplier.html", {"request": request}
         )
 
 

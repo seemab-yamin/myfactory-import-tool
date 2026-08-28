@@ -1,44 +1,123 @@
+// ===== Toggle New Supplier Input =====
+document.addEventListener('DOMContentLoaded', function () {
+  const supplierSelect = document.getElementById('supplierInput');
+  const newSupplierInput = document.getElementById('newSupplierInput');
+
+  supplierSelect.addEventListener('change', function () {
+    if (this.value === '__new__') {
+      newSupplierInput.style.display = 'inline-block';
+      newSupplierInput.focus();
+    } else {
+      newSupplierInput.style.display = 'none';
+      newSupplierInput.value = '';
+    }
+  });
+
+  // Handle Enter key on new supplier input
+  newSupplierInput.addEventListener('keydown', function (e) {
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      uploadFile();
+    }
+  });
+});
+
+// ===== Upload File =====
 async function uploadFile() {
-  const fileInput = document.getElementById('fileInput')
-  const supplier = document.getElementById('supplierInput').value.trim() || 'default'
-  const dryRun = document.getElementById('dryRunInput').checked
-  const resultDiv = document.getElementById('result')
+  const fileInput = document.getElementById('fileInput');
+  const supplierSelect = document.getElementById('supplierInput');
+  const newSupplierInput = document.getElementById('newSupplierInput');
+  const dryRun = document.getElementById('dryRunInput').checked;
+  const resultDiv = document.getElementById('result');
 
   if (!fileInput.files.length) {
-    resultDiv.innerHTML = '<div class="error">❌ Please select a file</div>'
-    return
+    resultDiv.innerHTML = '<div class="error">❌ Please select a file</div>';
+    return;
   }
 
-  const formData = new FormData()
-  formData.append('file', fileInput.files[0])
-  formData.append('supplier', supplier)
-  formData.append('dry_run', dryRun)
-  formData.append('batch_size', 1000)
+  // Determine supplier name
+  let supplier = supplierSelect.value;
+  if (supplier === '__new__') {
+    supplier = newSupplierInput.value.trim();
+    if (!supplier) {
+      resultDiv.innerHTML = '<div class="error">❌ Please enter a supplier name</div>';
+      return;
+    }
+  }
 
-  resultDiv.innerHTML = '<div class="info">⏳ Uploading...</div>'
+  const formData = new FormData();
+  formData.append('file', fileInput.files[0]);
+  formData.append('supplier', supplier);
+  formData.append('dry_run', dryRun);
+  formData.append('batch_size', 1000);
+
+  resultDiv.innerHTML = '<div class="info">⏳ Uploading...</div>';
 
   try {
-    const response = await fetch('/upload', { method: 'POST', body: formData })
-    const data = await response.json()
+    const response = await fetch('/upload', { method: 'POST', body: formData });
+    const data = await response.json();
 
     if (response.ok) {
-      let html = '<div class="success">✅ Import completed successfully!</div>'
-      html += `<pre>${JSON.stringify(data, null, 2)}</pre>`
-      resultDiv.innerHTML = html
+      let html = '<div class="success">✅ Import completed successfully!</div>';
+      html += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+      resultDiv.innerHTML = html;
+
+      // If it was a new supplier, refresh dropdown
+      if (supplierSelect.value === '__new__') {
+        await refreshSuppliersDropdown();
+      }
+
       if (data.preview && data.preview.length) {
-        resultDiv.innerHTML += `<h5>Preview Data:</h5><pre>${JSON.stringify(data.preview, null, 2)}</pre>`
+        resultDiv.innerHTML += `<h5>Preview Data:</h5><pre>${JSON.stringify(data.preview, null, 2)}</pre>`;
       }
     } else {
-      let errorMsg = data.detail || 'Unknown error'
-      if (typeof errorMsg === 'object') errorMsg = JSON.stringify(errorMsg, null, 2)
-      resultDiv.innerHTML = `<div class="error">❌ Error: ${errorMsg}</div>`
+      let errorMsg = data.detail || 'Unknown error';
+      if (typeof errorMsg === 'object') errorMsg = JSON.stringify(errorMsg, null, 2);
+      resultDiv.innerHTML = `<div class="error">❌ Error: ${errorMsg}</div>`;
     }
   } catch (e) {
-    resultDiv.innerHTML = `<div class="error">❌ Network Error: ${e.message}</div>`
+    resultDiv.innerHTML = `<div class="error">❌ Network Error: ${e.message}</div>`;
   }
 }
 
+// ===== Refresh Suppliers Dropdown =====
+async function refreshSuppliersDropdown() {
+  try {
+    const response = await fetch('/api/suppliers');
+    if (!response.ok) throw new Error('Failed to fetch suppliers');
+    const data = await response.json();
+    const suppliers = data.suppliers || [];
+
+    const select = document.getElementById('supplierInput');
+    const currentValue = select.value;
+
+    // Keep the "New Supplier" option
+    const newOption = select.querySelector('option[value="__new__"]');
+    select.innerHTML = '';
+    select.appendChild(newOption);
+
+    // Add existing suppliers
+    for (const s of suppliers) {
+      const opt = document.createElement('option');
+      opt.value = s;
+      opt.textContent = s;
+      select.appendChild(opt);
+    }
+
+    // Restore selection if it still exists
+    if (currentValue && suppliers.includes(currentValue)) {
+      select.value = currentValue;
+    }
+  } catch (e) {
+    console.warn('Failed to refresh suppliers dropdown:', e);
+  }
+}
+
+// ===== Clear Result =====
 function clearResult() {
-  document.getElementById('result').innerHTML = '<p class="text-muted">Ready to import...</p>'
-  document.getElementById('fileInput').value = ''
+  document.getElementById('result').innerHTML = '<p class="text-muted">Ready to import...</p>';
+  document.getElementById('fileInput').value = '';
+  document.getElementById('newSupplierInput').value = '';
+  document.getElementById('newSupplierInput').style.display = 'none';
+  document.getElementById('supplierInput').value = 'default';
 }
