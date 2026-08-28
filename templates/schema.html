@@ -5,57 +5,19 @@
 {% block content %}
   <h1>📊 Database Schema</h1>
   <p class="text-muted">View column definitions for your Myfactory tables.</p>
-  <button onclick="refreshSchema()" class="btn btn-sm btn-outline-primary float-end">🔄 Refresh</button>
+
   <div id="schemaContent">
     <div class="text-center py-4">
       <div class="spinner-border text-primary"></div>
-      <p>Loading schema...</p>
+      <p class="mt-2">Loading schema...</p>
     </div>
   </div>
   <hr />
   <p class="text-muted small">
     Last updated: <span id="lastUpdated">Loading...</span>
   </p>
+{% endblock %}
 
-  <script>
-    async function loadSchema() {
-      const container = document.getElementById('schemaContent')
-      container.innerHTML = '<div class="text-center py-4"><div class="spinner-border text-primary"></div><p>Loading...</p></div>'
-      try {
-        const response = await fetch('/api/schema')
-        if (!response.ok) throw new Error(`HTTP ${response.status}`)
-        const data = await response.json()
-        renderSchema(data)
-        document.getElementById('lastUpdated').textContent = new Date().toLocaleString()
-      } catch (e) {
-        container.innerHTML = `<div class="alert alert-danger">❌ Error: ${e.message}<br><button onclick="loadSchema()" class="btn btn-primary btn-sm mt-2">Retry</button></div>`
-      }
-    }
-    function renderSchema(data) {
-      let html = ''
-      for (const [table, columns] of Object.entries(data)) {
-        html += `<h2 class="mt-4">📋 ${table}</h2>`
-        if (!columns || columns.length === 0) {
-          html += `<div class="alert alert-warning">⚠️ Table not found – no columns.</div>`
-          continue
-        }
-        html += `<div class="table-responsive"><table class="table table-striped table-bordered"><thead><tr><th>#</th><th>Column</th><th>Type</th><th>Nullable</th><th>PK</th><th>Default</th></tr></thead><tbody>`
-        columns.forEach((col, i) => {
-          const nullable = col.nullable !== false
-          const pk = col.primary_key === true
-          html += `<tr><td>${i + 1}</td><td><strong>${col.name}</strong></td><td><code>${col.type}</code></td>
-                            <td>${nullable ? '<span class="badge bg-success">YES</span>' : '<span class="badge bg-danger">NO</span>'}</td>
-                            <td>${pk ? '<span class="badge bg-warning text-dark">PRIMARY</span>' : '—'}</td>
-                            <td><code>${col.default || '—'}</code></td></tr>`
-        })
-        html += `</tbody></table></div><p class="text-muted">Total: ${columns.length} columns</p>`
-      }
-      document.getElementById('schemaContent').innerHTML = html
-    }
-    async function refreshSchema() {
-      await fetch('/api/schema/refresh', { method: 'POST' })
-      loadSchema()
-    }
-    loadSchema()
-  </script>
+{% block scripts %}
+  <script src="{{ url_for('static', path='js/schema.js') }}"></script>
 {% endblock %}

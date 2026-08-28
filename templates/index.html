@@ -13,69 +13,29 @@
   </div>
   <div class="form-group">
     <label>Supplier:</label>
-    <input type="text" id="supplierInput" value="default" placeholder="Supplier name" />
+    <select id="supplierInput" class="form-select" style="width:auto; display:inline-block;">
+      <option value="default">default</option>
+      {% for supplier in suppliers %}
+        <option value="{{ supplier }}">{{ supplier }}</option>
+      {% endfor %}
+    </select>
   </div>
   <div class="form-group">
     <label>Dry run:</label>
     <input type="checkbox" id="dryRunInput" checked />
   </div>
-  <button onclick="uploadFile()" class="btn btn-primary">Upload & Import</button>
-  <button onclick="clearResult()" class="btn btn-secondary ms-2">Clear</button>
 
-  <div id="result" class="result mt-3 p-3 bg-light border rounded" style="max-height:400px; overflow-y:auto;">
+  <button onclick="uploadFile()" class="btn btn-primary">Upload & Import</button>
+  <button onclick="clearResult()" class="btn btn-secondary" style="margin-left:10px;">Clear</button>
+
+  <div id="result" class="result">
     <p class="text-muted">Ready to import...</p>
   </div>
-  <div id="connectionStatus" class="mt-2"></div>
 
-  <script>
-    async function checkConnection() {
-      const statusDiv = document.getElementById('connectionStatus')
-      try {
-        const response = await fetch('/health')
-        const data = await response.json()
-        statusDiv.innerHTML = data.configured ? '<span style="color:green;">✅ Connected to database</span>' : '<span style="color:orange;">⚠️ Database not configured. Run setup first.</span>'
-      } catch (e) {
-        statusDiv.innerHTML = '<span style="color:red;">❌ Cannot connect to API server</span>'
-      }
-    }
-    async function uploadFile() {
-      const fileInput = document.getElementById('fileInput')
-      const supplier = document.getElementById('supplierInput').value.trim() || 'default'
-      const dryRun = document.getElementById('dryRunInput').checked
-      const resultDiv = document.getElementById('result')
-      if (!fileInput.files.length) {
-        resultDiv.innerHTML = '<div class="text-danger">❌ Please select a file</div>'
-        return
-      }
-      const formData = new FormData()
-      formData.append('file', fileInput.files[0])
-      formData.append('supplier', supplier)
-      formData.append('dry_run', dryRun)
-      formData.append('batch_size', 1000)
-      resultDiv.innerHTML = '<div class="text-info">⏳ Uploading...</div>'
-      try {
-        const response = await fetch('/upload', { method: 'POST', body: formData })
-        const data = await response.json()
-        if (response.ok) {
-          let html = '<div class="text-success">✅ Import completed successfully!</div>'
-          html += `<pre>${JSON.stringify(data, null, 2)}</pre>`
-          if (data.preview && data.preview.length) {
-            html += '<h5>Preview Data:</h5><pre>' + JSON.stringify(data.preview, null, 2) + '</pre>'
-          }
-          resultDiv.innerHTML = html
-        } else {
-          let errorMsg = data.detail || 'Unknown error'
-          if (typeof errorMsg === 'object') errorMsg = JSON.stringify(errorMsg, null, 2)
-          resultDiv.innerHTML = `<div class="text-danger">❌ Error: ${errorMsg}</div>`
-        }
-      } catch (e) {
-        resultDiv.innerHTML = `<div class="text-danger">❌ Network Error: ${e.message}</div>`
-      }
-    }
-    function clearResult() {
-      document.getElementById('result').innerHTML = '<p class="text-muted">Ready to import...</p>'
-      document.getElementById('fileInput').value = ''
-    }
-    checkConnection()
-  </script>
+  <div id="connectionStatus" style="margin-top:15px; font-size:14px;"></div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', path='js/main.js') }}"></script>
+  <script src="{{ url_for('static', path='js/index.js') }}"></script>
 {% endblock %}

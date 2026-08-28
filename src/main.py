@@ -551,7 +551,7 @@ def cli_schema(args):
 
 if FASTAPI_AVAILABLE:
     from fastapi import BackgroundTasks, FastAPI, File, Form, HTTPException, UploadFile
-    from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
+    from fastapi.responses import FileResponse, HTMLResponse
     from fastapi.staticfiles import StaticFiles
     from fastapi.templating import Jinja2Templates
     from starlette.requests import Request
@@ -561,6 +561,7 @@ if FASTAPI_AVAILABLE:
         description="Import products from CSV/Excel to Myfactory CRM",
         version="1.0.0",
     )
+    app.mount("/static", StaticFiles(directory="static"), name="static")
 
     # Templates
     TEMPLATE_DIR = Path(__file__).parent.parent / "templates"
@@ -576,8 +577,9 @@ if FASTAPI_AVAILABLE:
     async def index(request: Request):
         """Home page."""
         if templates:
+            suppliers = get_mapper().get_all_suppliers() if ensure_configured() else []
             return templates.TemplateResponse(
-                request, "index.html", {"request": request}
+                request, "index.html", {"request": request, "suppliers": suppliers}
             )
         return HTMLResponse("""
             <h1>MyFactory Import Tool</h1>
