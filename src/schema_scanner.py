@@ -28,22 +28,16 @@ class SchemaScanner:
             use_cache: Use cached columns if available
 
         Returns:
-            List of column dictionaries with keys:
-                - name: column name
-                - type: data type (e.g., 'int', 'varchar')
-                - nullable: bool
-                - max_length: int or None
-                - primary_key: bool
-                - default: str or None
+            List of column dictionaries
         """
-        cache_key = f"{table_name}_{use_cache}"
 
-        if cache_key in self._cache:
+        cache_key = f"schema_{table_name}"
+        if use_cache and cache_key in self._cache:
             logger.debug(f"Returning cached schema for {table_name}")
             return self._cache[cache_key]
 
         try:
-            columns = self.db.get_table_columns(table_name, use_cache=use_cache)
+            columns = self.db.get_table_columns(table_name, use_cache)
             self._cache[cache_key] = columns
             logger.info(f"Scanned {len(columns)} columns from {table_name}")
             return columns
@@ -59,8 +53,9 @@ class SchemaScanner:
 
         Returns:
             List of dicts with 'name' and 'type' only.
-            Example: [{"name": "ProductID", "type": "int"}, ...]
+            Example: [{"name": "ProductNumber", "type": "varchar"}, ...]
         """
+
         columns = self.get_table_schema(table_name, use_cache)
         return [
             {
@@ -85,22 +80,17 @@ class SchemaScanner:
     def refresh_cache(self, table_name: Optional[str] = None):
         """
         Refresh cached schema for a table or all tables.
-
-        Args:
-            table_name: Specific table to refresh, or None to refresh all
         """
+
         if table_name:
-            cache_key = f"{table_name}_True"
+            cache_key = f"schema_{table_name}"
             if cache_key in self._cache:
                 del self._cache[cache_key]
+            self.get_table_schema(table_name, use_cache=False)
             logger.info(f"Cache refreshed for {table_name}")
         else:
             self._cache.clear()
             logger.info("All schema caches cleared")
-
-        # Force fresh scan
-        if table_name:
-            self.get_table_schema(table_name, use_cache=False)
 
     def table_exists(self, table_name: str) -> bool:
         """Check if a table exists."""

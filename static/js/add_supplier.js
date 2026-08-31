@@ -9,8 +9,7 @@ let supplierExists = false;
 // ===== Fetch Target Schema (Full) =====
 async function fetchTargetSchema() {
     try {
-        // Use the full schema endpoint with simplified=false to get nullable info
-        const response = await fetch('/schema/tdProducts?simplified=false');
+        const response = await fetch('/api/schema');
         if (!response.ok) throw new Error('Failed to fetch schema');
         const data = await response.json();
         targetColumns = data.columns || [];
@@ -78,6 +77,40 @@ async function parseSampleFile() {
     }
 }
 
+// ===== Force Refresh Schema =====
+async function forceRefreshSchema() {
+    const btn = document.getElementById('refreshSchemaBtn');
+    const statusDiv = document.getElementById('parseStatus');
+
+    // Disable button & show spinner
+    btn.disabled = true;
+    btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Refreshing...';
+    statusDiv.innerHTML = '<span class="text-info">⏳ Refreshing schema from database...</span>';
+
+    try {
+        // ✅ Call /api/schema with refresh_cache=true
+        const response = await fetch('/api/schema?refresh_cache=true&use_cache=false');
+        if (!response.ok) throw new Error(`HTTP ${response.status}`);
+
+        // ✅ Re-fetch the schema
+        await fetchTargetSchema();
+
+        // ✅ If a file is already uploaded, rebuild the mapping UI
+        if (parsedColumns.length > 0) {
+            buildMappingUI(targetColumns, parsedColumns);
+        }
+
+        statusDiv.innerHTML = '<span class="text-success">✅ Schema refreshed successfully!</span>';
+        showToast('Schema refreshed successfully', 'success');
+    } catch (error) {
+        statusDiv.innerHTML = `<span class="text-danger">❌ Failed to refresh schema: ${error.message}</span>`;
+        showToast('Error', `Failed to refresh schema: ${error.message}`, 'danger');
+    } finally {
+        btn.disabled = false;
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Force Refresh Schema';
+    }
+}
+
 // ===== Build Mapping UI (Database → File) =====
 // ===== Render Preview =====
 function renderPreview(preview) {
@@ -125,7 +158,6 @@ function buildMappingUI(targetCols, fileCols) {
     let html = '';
     sortedTargetCols.forEach((col, index) => {
         const isMandatory = col.nullable === false;
-        const isPrimaryKey = col.primary_key || false;
 
         html += `
             <tr>
@@ -133,7 +165,6 @@ function buildMappingUI(targetCols, fileCols) {
                 <td>
                     <strong>${col.name}</strong>
                     ${isMandatory ? '<span class="text-danger">*</span>' : ''}
-                    ${isPrimaryKey ? ' <span class="badge bg-primary">PK</span>' : ''}
                     <br><span class="text-muted small">${col.type || ''}</span>
                 </td>
                 <td><i class="bi bi-arrow-right text-primary"></i></td>

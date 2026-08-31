@@ -4,7 +4,10 @@
 {% endblock %}
 {% block content %}
   <h1>📊 Database Schema</h1>
-  <p class="text-muted">View column definitions for your Myfactory tables.</p>
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <p class="text-muted mb-0">View column definitions for your Myfactory tables.</p>
+    <button id="refreshSchemaBtn" class="btn btn-sm btn-outline-primary" onclick="refreshSchemaData()"><i class="bi bi-arrow-clockwise"></i> Force Refresh</button>
+  </div>
 
   <div id="schemaContent">
     <div class="text-center py-4">

@@ -60,9 +60,14 @@
 
     <!-- ===== STEP 3: Column Mapping ===== -->
     <div class="card mb-4">
-      <div class="card-header bg-light">
-        <strong>Step 3:</strong> Map Product Fields → File Columns
-        <span class="badge bg-warning text-dark ms-2" id="mappingStatus">0 mapped</span>
+      <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <div>
+          <strong>Step 3:</strong> Map Product Fields → File Columns
+          <span class="badge bg-warning text-dark ms-2" id="mappingStatus">0 mapped</span>
+        </div>
+        <div>
+          <button class="btn btn-sm btn-outline-primary" onclick="forceRefreshSchema()" id="refreshSchemaBtn"><i class="bi bi-arrow-clockwise"></i> Force Refresh Schema</button>
+        </div>
       </div>
       <div class="card-body">
         <div id="mappingArea" style="display:none;">

@@ -193,7 +193,6 @@ class ProductColumn(Base):
     data_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
     max_length: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
     is_nullable: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_primary_key: Mapped[bool] = mapped_column(Boolean, default=False)
     is_identity: Mapped[bool] = mapped_column(Boolean, default=False)
     default_value: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
 
@@ -214,7 +213,6 @@ class ProductColumn(Base):
             "data_type": self.data_type,
             "max_length": self.max_length,
             "is_nullable": self.is_nullable,
-            "is_primary_key": self.is_primary_key,
             "is_identity": self.is_identity,
             "default_value": self.default_value,
             "discovered_at": (
@@ -234,7 +232,6 @@ class ProductColumn(Base):
             data_type=str(column_info["type"]),
             max_length=column_info.get("length"),
             is_nullable=column_info.get("nullable", True),
-            is_primary_key=column_info.get("primary_key", False),
             is_identity=column_info.get("identity", False),
             default_value=(
                 str(column_info.get("default")) if column_info.get("default") else None
@@ -263,6 +260,7 @@ class ImportSettings(Base):
 
 
 # === Data Transfer Objects (DTOs) for import/export ===
+
 
 @dataclass
 class ImportConfigDTO:
@@ -335,7 +333,7 @@ def get_table_name(table_name: Optional[str] = None) -> str:
     from src.config_manager import get_config_manager
 
     config = get_config_manager()
-    return config.get().default_table
+    return config.get().default_products_table
 
 
 # === Import for convenience ===

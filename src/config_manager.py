@@ -47,7 +47,7 @@ class AppSettings:
     auth_method: str = "windows"  # "windows" or "sql"
 
     # Import Settings
-    default_table: str = "tdProducts"
+    default_products_table: str = "tdProducts"
     default_supplier: str = "default"
     default_delimiter: str = ","
     default_batch_size: int = 1000
@@ -85,7 +85,7 @@ class AppSettings:
             "db_port": self.db_port,
             "db_connection_timeout": self.db_connection_timeout,
             "auth_method": self.auth_method,
-            "default_table": self.default_table,
+            "default_products_table": self.default_products_table,
             "default_supplier": self.default_supplier,
             "default_delimiter": self.default_delimiter,
             "default_batch_size": self.default_batch_size,
@@ -313,9 +313,11 @@ class ConfigManager:
 
             # Step 3: Import Settings
             print("\n--- Import Settings ---")
-            default_table = self._settings.default_table or "tdProducts"
-            table = input(f"Default product table [{default_table}]: ").strip()
-            self._settings.default_table = table or default_table
+            default_products_table = (
+                self._settings.default_products_table or "tdProducts"
+            )
+            table = input(f"Default product table [{default_products_table}]: ").strip()
+            self._settings.default_products_table = table or default_products_table
 
             default_supplier = self._settings.default_supplier or "default"
             supplier = input(f"Default supplier name [{default_supplier}]: ").strip()
@@ -482,7 +484,7 @@ class ConfigManager:
             f"Database:      {s.db_database}",
             f"Driver:        {s.db_driver}",
             f"Auth Method:   {s.auth_method.upper()}",
-            f"Table:         {s.default_table}",
+            f"Table:         {s.default_products_table}",
             f"Supplier:      {s.default_supplier}",
             f"Batch Size:    {s.default_batch_size}",
             f"Log Level:     {s.log_level}",

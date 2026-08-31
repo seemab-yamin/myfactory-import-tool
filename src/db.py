@@ -212,7 +212,6 @@ class DatabaseManager:
         try:
             inspector = inspect(engine)
             columns = inspector.get_columns(table_name)
-
             result = []
             for col in columns:
                 result.append(
@@ -223,19 +222,17 @@ class DatabaseManager:
                         "default": (
                             str(col.get("default")) if col.get("default") else None
                         ),
-                        "primary_key": col.get("primary_key", False),
                         "autoincrement": col.get("autoincrement", False),
                     }
                 )
-
             # Cache the results
             self._cache_columns(table_name, result)
-
             logger.info(f"Discovered {len(result)} columns in {table_name}")
             return result
         except Exception as e:
             logger.error(f"Failed to get columns from {table_name}: {e}")
-            return self._get_fallback_columns()
+            # gracefully stop and report failed to get columns
+            return []
 
     def _get_cached_columns(self, table_name: str) -> Optional[List[Dict[str, Any]]]:
         """Get cached columns from local database."""
@@ -255,7 +252,6 @@ class DatabaseManager:
                             "name": c.column_name,
                             "type": c.data_type,
                             "nullable": c.is_nullable,
-                            "primary_key": c.is_primary_key,
                             "identity": c.is_identity,
                             "default": c.default_value,
                         }
@@ -284,7 +280,6 @@ class DatabaseManager:
                         column_name=col["name"],
                         data_type=col["type"],
                         is_nullable=col.get("nullable", True),
-                        is_primary_key=col.get("primary_key", False),
                         is_identity=col.get("autoincrement", False),
                         default_value=col.get("default"),
                     )
@@ -293,204 +288,6 @@ class DatabaseManager:
                 logger.info(f"Cached {len(columns)} columns for {table_name}")
         except Exception as e:
             logger.warning(f"Failed to cache columns: {e}")
-
-    def _get_fallback_columns(self) -> List[Dict[str, Any]]:
-        """Fallback column list if schema discovery fails."""
-        return [
-            {
-                "name": "ProductID",
-                "type": "INT",
-                "nullable": False,
-                "primary_key": True,
-            },
-            {
-                "name": "ProductNumber",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "Description",
-                "type": "VARCHAR(255)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "Name",
-                "type": "VARCHAR(255)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "Matchcode",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "BaseUnit",
-                "type": "VARCHAR(10)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "BaseDecimals",
-                "type": "INT",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "ProductGroup",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "MemoText",
-                "type": "TEXT",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "Name1",
-                "type": "VARCHAR(255)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "Name2",
-                "type": "VARCHAR(255)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "IsFavorite",
-                "type": "BOOLEAN",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {"name": "Taxation", "type": "INT", "nullable": True, "primary_key": False},
-            {
-                "name": "SalesUnit",
-                "type": "VARCHAR(10)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "ProductType",
-                "type": "INT",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "Warehouse",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "Stock",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "StockNotification",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "PriceUnit",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "ValuationPrice",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "IsManual",
-                "type": "BOOLEAN",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "PriceBaseUnit",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "PriceBaseUnitC",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "FromImport",
-                "type": "BOOLEAN",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "ProductERPID",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "ManufacturerID",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "AllowNegative",
-                "type": "BOOLEAN",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "StockWithDraw",
-                "type": "INT",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "RevenueBase",
-                "type": "INT",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "ReplaceMeanP",
-                "type": "INT",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "DivisionDepend",
-                "type": "INT",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "MainSupplier",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-            {
-                "name": "LastSupplier",
-                "type": "VARCHAR(50)",
-                "nullable": True,
-                "primary_key": False,
-            },
-        ]
 
     def get_myfactory_connection_string(self) -> Optional[str]:
         """Get the current Myfactory connection string (without password)."""

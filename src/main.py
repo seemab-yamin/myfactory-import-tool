@@ -336,7 +336,7 @@ Examples:
   python main.py list-mappings --supplier ACME
   
   # Save a mapping
-  python main.py save-mapping --supplier ACME --source SKU --target ProductID
+  python main.py save-mapping --supplier ACME --source SKU
   
   # Show import history
   python main.py history --supplier ACME --limit 20
@@ -455,7 +455,7 @@ Examples:
     schema_parser.add_argument(
         "--show-all",
         action="store_true",
-        help="Show both tdProducts and tdAttributeValues schemas",
+        help="Show both tdProducts schemas",
     )
     schema_parser.set_defaults(func=cli_schema)
     return parser
@@ -496,12 +496,7 @@ def cli_schema(args):
         console.print(f"[green]✅ Cache refreshed for {args.table}[/green]")
         return
 
-    # Determine which tables to scan
-    if args.show_all:
-        tables_to_scan = ["tdProducts", "tdAttributeValues"]
-    else:
-        tables_to_scan = [args.table]
-
+    tables_to_scan = [args.table]
     for table_name in tables_to_scan:
         if not scanner.table_exists(table_name):
             console.print(f"[yellow]⚠️ Table '{table_name}' not found[/yellow]")
@@ -535,10 +530,7 @@ def cli_schema(args):
 
         for idx, col in enumerate(columns, 1):
             nullable = "YES" if col.get("nullable", True) else "NO"
-            pk = "✅" if col.get("primary_key", False) else "❌"
-            table.add_row(
-                str(idx), col.get("name", ""), col.get("type", ""), nullable, pk
-            )
+            table.add_row(str(idx), col.get("name", ""), col.get("type", ""), nullable)
 
         console.print("\n")
         console.print(table)
@@ -852,7 +844,6 @@ if FASTAPI_AVAILABLE:
         name: str
         type: str
         nullable: bool
-        primary_key: Optional[bool] = False
         max_length: Optional[int] = None
         default: Optional[str] = None
 
@@ -861,20 +852,28 @@ if FASTAPI_AVAILABLE:
         total_columns: int
         columns: List[ColumnSchema]
 
-    @app.get("/schema/{table_name}", response_model=TableSchemaResponse)
-    async def get_schema(
-        table_name: str = "tdProducts",  # ← Default if not provided
+    @app.get("/schema", response_class=HTMLResponse)
+    async def schema_page(request: Request):
+        """
+        Render the schema viewer HTML page.
+        Data is fetched separately via the /api/schema endpoint.
+        """
+        if not ensure_configured():
+            raise HTTPException(
+                status_code=400, detail="Database not configured. Run setup first."
+            )
+
+        # Simply render the HTML template — no data processing here
+        return templates.TemplateResponse(request, "schema.html", {"request": request})
+
+    @app.get("/api/schema")
+    async def api_schema(
         use_cache: bool = True,
         simplified: bool = False,
-        refresh_cache: bool = False,  # ← New: force refresh
+        refresh_cache: bool = False,
     ):
         """
-        Get schema for a table.
-
-        - **table_name**: Name of the table (default: tdProducts)
-        - **use_cache**: Use cached columns if available
-        - **simplified**: Return only name + type (for mapping UI)
-        - **refresh_cache**: Force refresh the cache
+        Return JSON schema for the default table.
         """
 
         if not ensure_configured():
@@ -882,100 +881,29 @@ if FASTAPI_AVAILABLE:
                 status_code=400, detail="Database not configured. Run setup first."
             )
 
+        config = get_config_manager()
+        default_products_table = config.get().default_products_table
         scanner = get_scanner()
 
-        # Force refresh if requested
         if refresh_cache:
-            scanner.refresh_cache(table_name)
+            scanner.refresh_cache(default_products_table)
 
-        if not scanner.table_exists(table_name):
+        if not scanner.table_exists(default_products_table):
             raise HTTPException(
                 status_code=404,
-                detail=f"Table '{table_name}' not found in the database.",
+                detail=f"Table '{default_products_table}' not found in the database.",
             )
 
-        # Get columns based on mode
         if simplified:
-            # Simplified: only name and type (for dropdowns)
-            columns = scanner.get_columns_for_mapping(table_name, use_cache)
+            columns = scanner.get_columns_for_mapping(default_products_table, use_cache)
         else:
-            # Full schema: includes nullable, primary_key, etc.
-            columns = scanner.get_table_schema(table_name, use_cache)
+            columns = scanner.get_table_schema(default_products_table, use_cache)
+
         return {
-            "table_name": table_name,
+            "table_name": default_products_table,
             "total_columns": len(columns),
             "columns": columns,
         }
-
-    @app.get("/schema/{table_name}/columns")
-    async def get_column_names_only(table_name: str, use_cache: bool = True):
-        """Get only column names for a table."""
-        if not ensure_configured():
-            raise HTTPException(
-                status_code=400, detail="Database not configured. Run setup first."
-            )
-
-        scanner = get_scanner()
-
-        if not scanner.table_exists(table_name):
-            raise HTTPException(
-                status_code=404, detail=f"Table '{table_name}' not found"
-            )
-
-        return {
-            "table_name": table_name,
-            "columns": scanner.get_column_names(table_name, use_cache),
-        }
-
-    @app.post("/schema/refresh")
-    async def refresh_schema(table_name: Optional[str] = None):
-        """Refresh schema cache."""
-        if not ensure_configured():
-            raise HTTPException(
-                status_code=400, detail="Database not configured. Run setup first."
-            )
-
-        scanner = get_scanner()
-        scanner.refresh_cache(table_name)
-
-        return {
-            "status": "success",
-            "message": f"Cache refreshed for {table_name or 'all tables'}",
-        }
-
-    @app.get("/api/schema")
-    async def api_schema():
-        """Return JSON with both tdProducts and tdAttributeValues schemas."""
-        scanner = get_scanner()
-        result = {}
-        # Safely fetch each table
-        tables = ["tdProducts", "tdAttributeValues"]
-        for table in tables:
-            try:
-                if scanner.table_exists(table):
-                    result[table] = scanner.get_table_schema(table, use_cache=True)
-                else:
-                    result[table] = []  # Table doesn't exist → empty array
-            except Exception as e:
-                # Log error and return empty array for this table
-                logger.warning(f"Failed to fetch schema for {table}: {e}")
-                result[table] = []
-
-        return result
-
-    @app.get("/schema", response_class=HTMLResponse)
-    async def schema_page(request: Request):
-        """Render schema page with both tables."""
-        scanner = get_scanner()
-        schemas = {
-            "tdProducts": scanner.get_table_schema("tdProducts", use_cache=True),
-            "tdAttributeValues": scanner.get_table_schema(
-                "tdAttributeValues", use_cache=True
-            ),
-        }
-        return templates.TemplateResponse(
-            request, "schema.html", {"request": request, "schemas": schemas}
-        )
 
     @app.post("/api/parse-sample")
     async def parse_sample_file(file: UploadFile = File(...)):
@@ -1011,14 +939,12 @@ if FASTAPI_AVAILABLE:
                 .replace({pd.NA: None, float("nan"): None})
                 .to_dict(orient="records")
             )
-
             return {
                 "columns": columns,
                 "preview": preview,
                 "row_count": len(df),
                 "column_count": len(columns),
             }
-
         except Exception as e:
             logger.error(f"Parse error: {e}")
             raise HTTPException(
@@ -1045,10 +971,8 @@ def main():
     if len(sys.argv) == 1:
         launch_web_ui()
         return
-
     parser = create_parser()
     args = parser.parse_args()
-
     if hasattr(args, "func"):
         args.func(args)
     else:

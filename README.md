@@ -90,7 +90,7 @@ python -m src.main import --file data.csv --supplier ACME --batch 500
 python -m src.main list-mappings --supplier ACME
 
 # Save mapping
-python -m src.main save-mapping --supplier ACME --source SKU --target ProductID
+python -m src.main save-mapping --supplier ACME --source SKU
 
 # Show history
 python -m src.main history --supplier ACME --limit 10
