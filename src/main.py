@@ -918,9 +918,9 @@ if FASTAPI_AVAILABLE:
             # Determine file type
             filename = file.filename.lower()
             if filename.endswith(".csv"):
-                df = pd.read_csv(BytesIO(content))
+                df = pd.read_csv(BytesIO(content), nrows=5)
             elif filename.endswith((".xlsx", ".xls")):
-                df = pd.read_excel(BytesIO(content))
+                df = pd.read_excel(BytesIO(content), nrows=5)
             else:
                 raise HTTPException(
                     status_code=400,
