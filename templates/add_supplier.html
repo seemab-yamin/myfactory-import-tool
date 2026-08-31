@@ -72,7 +72,7 @@
       <div class="card-body">
         <div id="mappingArea" style="display:none;">
           <p class="text-muted">
-            For each <strong>product table field</strong>, select the corresponding column from your uploaded file.
+            For each <strong>product table field</strong>, select the corresponding column from your uploaded file or provide a default value.
             <span class="text-danger">*</span> indicates mandatory fields.
           </p>
 
@@ -81,12 +81,11 @@
               <thead class="table-light">
                 <tr>
                   <th style="width:30px;">#</th>
-                  <th style="width:35%;">
-                    Product Field <span class="text-danger">*</span>
-                  </th>
-                  <th style="width:5%;"></th>
-                  <th style="width:40%;">Map to File Column</th>
-                  <th style="width:15%;">Status</th>
+                  <th style="width:20%;">DB Field</th>
+                  <th style="width:25%;">Source Field (from file)</th>
+                  <th style="width:10%;">Mandatory</th>
+                  <th style="width:10%;">Pre-Populated</th>
+                  <th style="width:20%;">Prepopulated Value</th>
                 </tr>
               </thead>
               <tbody id="mappingTableBody">

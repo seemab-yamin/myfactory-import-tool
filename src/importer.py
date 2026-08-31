@@ -22,6 +22,19 @@ from src.models import (
 logger = get_logger(__name__)
 
 
+def run_import(file_path, supplier, dry_run, batch_size):
+    importer = get_importer()
+    result = importer.import_file(
+        {
+            "file_path": str(file_path),
+            "supplier_name": supplier,
+            "dry_run": dry_run,
+            "batch_size": batch_size,
+        }
+    )
+    return result
+
+
 class MyfactoryImporter:
     """
     Main importer class for Myfactory CRM.
@@ -296,9 +309,11 @@ class MyfactoryImporter:
         errors = []
         target_cols = self.get_target_columns()
 
-        # Check for required columns (ProductID)
-        if "ProductID" not in df.columns and "ProductNumber" not in df.columns:
-            errors.append("No ProductID or ProductNumber column found")
+        # Check for required columns (ProductNumber is required is auto-generated)
+        if "ProductNumber" not in df.columns:
+            errors.append(
+                "No ProductNumber column found - this is required for product identification"
+            )
 
         # Filter to valid columns
         valid_columns = [col for col in df.columns if col in target_cols]
@@ -407,7 +422,7 @@ class MyfactoryImporter:
                     session.commit()
             except Exception as e:
                 failed += 1
-                error_msg = f"Row failed: {row.get('ProductID', 'unknown')} - {e}"
+                error_msg = f"Row failed: {row.get('ProductNumber', 'unknown')} - {e}"
                 errors.append(error_msg)
                 logger.warning(error_msg)
 
@@ -442,8 +457,8 @@ class MyfactoryImporter:
         # Validate data
         errors = []
         for idx, row in df.iterrows():
-            if pd.isna(row.get("ProductID")):
-                errors.append(f"Row {idx}: Missing ProductID")
+            if pd.isna(row.get("ProductNumber")):
+                errors.append(f"Row {idx}: Missing ProductNumber")
 
         if errors:
             logger.warning(f"Found {len(errors)} issues in data")

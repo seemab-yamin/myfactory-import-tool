@@ -5,6 +5,7 @@ let targetColumnNames = [];       // Just names for dropdown
 let mandatoryFields = [];         // Dynamic: fields where nullable === false
 let currentMappings = {};
 let supplierExists = false;
+let prepopulatedValues = {};
 
 // ===== Fetch Target Schema (Full) =====
 async function fetchTargetSchema() {
@@ -81,25 +82,18 @@ async function parseSampleFile() {
 async function forceRefreshSchema() {
     const btn = document.getElementById('refreshSchemaBtn');
     const statusDiv = document.getElementById('parseStatus');
-
-    // Disable button & show spinner
     btn.disabled = true;
     btn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Refreshing...';
     statusDiv.innerHTML = '<span class="text-info">⏳ Refreshing schema from database...</span>';
-
     try {
-        // ✅ Call /api/schema with refresh_cache=true
         const response = await fetch('/api/schema?refresh_cache=true&use_cache=false');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
-        // ✅ Re-fetch the schema
         await fetchTargetSchema();
 
-        // ✅ If a file is already uploaded, rebuild the mapping UI
         if (parsedColumns.length > 0) {
             buildMappingUI(targetColumns, parsedColumns);
         }
-
         statusDiv.innerHTML = '<span class="text-success">✅ Schema refreshed successfully!</span>';
         showToast('Schema refreshed successfully', 'success');
     } catch (error) {
@@ -108,45 +102,36 @@ async function forceRefreshSchema() {
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Force Refresh Schema';
+        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Force Refresh Schema';
     }
 }
-
-// ===== Build Mapping UI (Database → File) =====
 // ===== Render Preview =====
 function renderPreview(preview) {
     const head = document.getElementById('previewHead');
     const body = document.getElementById('previewBody');
-
     if (!preview.length) {
         head.innerHTML = '';
         body.innerHTML = '<tr><td colspan="10" class="text-muted">No preview data</td></tr>';
         return;
     }
-
-    // Headers
     const headers = Object.keys(preview[0]);
     head.innerHTML = `<tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>`;
-
-    // Rows (first 5)
     const rows = preview.slice(0, 5);
     body.innerHTML = rows.map(row => `
         <tr>${headers.map(h => `<td>${row[h] || ''}</td>`).join('')}</tr>
     `).join('');
 }
 
-// ===== Build Mapping UI (Database → File) with Sorting =====
+// ===== Build Mapping UI with Enhanced Columns =====
 function buildMappingUI(targetCols, fileCols) {
     const area = document.getElementById('mappingArea');
     const noFile = document.getElementById('noFileMessage');
     const tbody = document.getElementById('mappingTableBody');
-
     area.style.display = 'block';
     noFile.style.display = 'none';
-
-    // Reset mappings
     currentMappings = {};
+    prepopulatedValues = {};
 
-    // 🔥 Sort: mandatory fields (nullable === false) first
     const sortedTargetCols = [...targetCols].sort((a, b) => {
         const aRequired = a.nullable === false;
         const bRequired = b.nullable === false;
@@ -154,62 +139,143 @@ function buildMappingUI(targetCols, fileCols) {
         if (!aRequired && bRequired) return 1;
         return 0;
     });
-
     let html = '';
     sortedTargetCols.forEach((col, index) => {
         const isMandatory = col.nullable === false;
-
+        const rowId = `row-${index}`;
         html += `
-            <tr>
+            <tr id="${rowId}">
                 <td>${index + 1}</td>
                 <td>
                     <strong>${col.name}</strong>
                     ${isMandatory ? '<span class="text-danger">*</span>' : ''}
                     <br><span class="text-muted small">${col.type || ''}</span>
                 </td>
-                <td><i class="bi bi-arrow-right text-primary"></i></td>
                 <td>
-                    <select class="form-select form-select-sm target-select" data-target="${col.name}">
+                    <select class="form-select form-select-sm source-select" data-target="${col.name}" data-row="${rowId}">
                         <option value="">— ignore —</option>
                         ${fileCols.map(fc => `<option value="${fc}">${fc}</option>`).join('')}
                     </select>
                 </td>
+                <td class="text-center">
+                    <input type="checkbox" class="form-check-input mandatory-check" data-target="${col.name}" 
+                           ${isMandatory ? 'checked disabled' : ''}>
+                </td>
+                <td class="text-center">
+                    <input type="checkbox" class="form-check-input prepopulated-check" data-target="${col.name}" data-row="${rowId}">
+                </td>
                 <td>
-                    ${isMandatory
-                ? '<span class="badge bg-danger">Required</span>'
-                : '<span class="badge bg-secondary">Optional</span>'}
+                    <input type="text" class="form-control form-control-sm prepopulated-value"
+                           data-target="${col.name}" placeholder="Default value..." disabled>
                 </td>
             </tr>
         `;
     });
-
     tbody.innerHTML = html;
-
-    // Add change listeners
-    document.querySelectorAll('.target-select').forEach(select => {
+    // Add event listeners
+    document.querySelectorAll('.source-select').forEach(select => {
         select.addEventListener('change', function () {
             const targetField = this.dataset.target;
             const sourceColumn = this.value;
-            if (sourceColumn) {
-                currentMappings[targetField] = sourceColumn;
-            } else {
-                delete currentMappings[targetField];
-            }
-            updateMappingStatus();
+            const rowId = this.dataset.row;
+            updateMapping(targetField, sourceColumn, rowId);
         });
     });
-
-    // Show mandatory fields summary
+    document.querySelectorAll('.mandatory-check').forEach(checkbox => {
+        checkbox.addEventListener('change', function () {
+            const targetField = this.dataset.target;
+            updateValidation(targetField);
+        });
+    });
+    document.querySelectorAll('.prepopulated-check').forEach(checkbox => {
+        checkbox.addEventListener('change', function () {
+            const targetField = this.dataset.target;
+            const rowId = this.dataset.row;
+            const valueInput = document.querySelector(`.prepopulated-value[data-target="${targetField}"]`);
+            if (this.checked) {
+                valueInput.disabled = false;
+                valueInput.focus();
+            } else {
+                valueInput.disabled = true;
+                valueInput.value = '';
+                delete prepopulatedValues[targetField];
+            }
+            updateMapping(targetField, null, rowId);
+        });
+    });
+    document.querySelectorAll('.prepopulated-value').forEach(input => {
+        input.addEventListener('input', function () {
+            const targetField = this.dataset.target;
+            if (this.value.trim()) {
+                prepopulatedValues[targetField] = this.value.trim();
+            } else {
+                delete prepopulatedValues[targetField];
+            }
+            updateValidation(targetField);
+        });
+    });
     showMandatorySummary();
-
     updateMappingStatus();
 }
-
+// ===== Update Mapping =====
+function updateMapping(targetField, sourceColumn, rowId) {
+    const sourceSelect = document.querySelector(`.source-select[data-target="${targetField}"]`);
+    const prepopulatedCheck = document.querySelector(`.prepopulated-check[data-target="${targetField}"]`);
+    const valueInput = document.querySelector(`.prepopulated-value[data-target="${targetField}"]`);
+    // Clear existing mapping
+    delete currentMappings[targetField];
+    // Case 1: Source field selected
+    if (sourceColumn && sourceColumn !== '') {
+        currentMappings[targetField] = { source: sourceColumn, prepopulated: false, value: null };
+        // Uncheck prepopulated if source is selected
+        if (prepopulatedCheck) {
+            prepopulatedCheck.checked = false;
+            valueInput.disabled = true;
+            valueInput.value = '';
+            delete prepopulatedValues[targetField];
+        }
+    }
+    // Case 2: Prepopulated checked
+    else if (prepopulatedCheck && prepopulatedCheck.checked) {
+        const value = valueInput.value.trim();
+        if (value) {
+            currentMappings[targetField] = { source: null, prepopulated: true, value: value };
+        } else {
+            // Show error if prepopulated is checked but no value
+            valueInput.classList.add('is-invalid');
+        }
+    }
+    updateValidation(targetField);
+    updateMappingStatus();
+}
+// ===== Update Validation for a Specific Field =====
+function updateValidation(targetField) {
+    const sourceSelect = document.querySelector(`.source-select[data-target="${targetField}"]`);
+    const prepopulatedCheck = document.querySelector(`.prepopulated-check[data-target="${targetField}"]`);
+    const valueInput = document.querySelector(`.prepopulated-value[data-target="${targetField}"]`);
+    const isMandatory = mandatoryFields.includes(targetField);
+    const rowId = sourceSelect ? sourceSelect.dataset.row : null;
+    // Remove existing validation states
+    if (sourceSelect) sourceSelect.classList.remove('is-invalid', 'is-valid');
+    if (valueInput) valueInput.classList.remove('is-invalid', 'is-valid');
+    // If not mandatory, skip validation
+    if (!isMandatory) return;
+    const hasSource = sourceSelect && sourceSelect.value && sourceSelect.value !== '';
+    const hasPrepopulated = prepopulatedCheck && prepopulatedCheck.checked && valueInput && valueInput.value.trim();
+    // Validate: either source is selected OR prepopulated has a value
+    if (!hasSource && !hasPrepopulated) {
+        if (sourceSelect) sourceSelect.classList.add('is-invalid');
+        if (valueInput) valueInput.classList.add('is-invalid');
+    } else {
+        if (sourceSelect) sourceSelect.classList.remove('is-invalid');
+        if (valueInput) valueInput.classList.remove('is-invalid');
+        if (sourceSelect && hasSource) sourceSelect.classList.add('is-valid');
+    }
+}
 // ===== Show Mandatory Fields Summary =====
 function showMandatorySummary() {
     const summaryDiv = document.getElementById('mandatorySummary');
     const listSpan = document.getElementById('mandatoryList');
-
     if (mandatoryFields.length) {
         summaryDiv.style.display = 'block';
         listSpan.innerHTML = mandatoryFields.map(f =>
@@ -219,7 +285,6 @@ function showMandatorySummary() {
         summaryDiv.style.display = 'none';
     }
 }
-
 // ===== Update Mapping Status =====
 function updateMappingStatus() {
     const statusBadge = document.getElementById('mappingStatus');
@@ -229,9 +294,11 @@ function updateMappingStatus() {
     const totalRequired = mandatoryFields.length;
 
     // Check if all mandatory fields are mapped
-    const mandatoryMapped = mandatoryFields.every(f =>
-        currentMappings[f] && currentMappings[f] !== ''
-    );
+    const mandatoryMapped = mandatoryFields.every(f => {
+        const mapping = currentMappings[f];
+        if (!mapping) return false;
+        return (mapping.source && mapping.source !== '') || (mapping.prepopulated && mapping.value);
+    });
 
     const canSave = mandatoryMapped && totalMapped > 0;
 
@@ -259,7 +326,12 @@ async function saveMappings() {
     }
 
     // Check mandatory mappings
-    const missingMandatory = mandatoryFields.filter(f => !currentMappings[f] || currentMappings[f] === '');
+    const missingMandatory = mandatoryFields.filter(f => {
+        const mapping = currentMappings[f];
+        if (!mapping) return true;
+        return !((mapping.source && mapping.source !== '') || (mapping.prepopulated && mapping.value));
+    });
+
     if (missingMandatory.length) {
         showToast('Error', `Missing required fields: ${missingMandatory.join(', ')}`, 'danger');
         return;
@@ -269,12 +341,26 @@ async function saveMappings() {
     statusDiv.innerHTML = '<span class="text-info">⏳ Saving mappings...</span>';
 
     try {
-        // Save each mapping (Database Field → File Column)
-        for (const [targetField, sourceColumn] of Object.entries(currentMappings)) {
+        for (const [targetField, mapping] of Object.entries(currentMappings)) {
+            let sourceField = mapping.source;
+            let targetValue = mapping.value;
+
+            // If prepopulated, we need to handle it differently
+            // We'll store the value in a special way or use a default
+            if (mapping.prepopulated && mapping.value) {
+                // For prepopulated values, we can store them as a special mapping
+                // or set a default value in the database
+                sourceField = '__prepopulated__';
+                targetValue = mapping.value;
+            }
+
             const formData = new FormData();
-            formData.append('source_field', sourceColumn);      // File column
-            formData.append('target_field', targetField);      // Database field
+            formData.append('source_field', sourceField || '');
+            formData.append('target_field', targetField);
             formData.append('active', 'true');
+            if (targetValue) {
+                formData.append('default_value', targetValue);
+            }
 
             const response = await fetch(`/api/mappings/${supplierName}`, {
                 method: 'POST',
@@ -347,19 +433,7 @@ function checkAvailability() {
     checkSupplierName();
 }
 
-
-// ===== Init =====
-document.addEventListener('DOMContentLoaded', async function () {
-    await fetchTargetSchema();
-
-    document.getElementById('supplierName').addEventListener('input', checkSupplierName);
-    document.getElementById('sampleFile').addEventListener('change', function () {
-        if (this.files.length) {
-            document.getElementById('parseFileBtn').click();
-        }
-    });
-});
-
+// ===== Reset Form =====
 function resetForm() {
     document.getElementById('supplierName').value = '';
     document.getElementById('sampleFile').value = '';
@@ -374,4 +448,17 @@ function resetForm() {
     supplierExists = false;
     parsedColumns = [];
     currentMappings = {};
+    prepopulatedValues = {};
 }
+
+// ===== Init =====
+document.addEventListener('DOMContentLoaded', async function () {
+    await fetchTargetSchema();
+
+    document.getElementById('supplierName').addEventListener('input', checkSupplierName);
+    document.getElementById('sampleFile').addEventListener('change', function () {
+        if (this.files.length) {
+            document.getElementById('parseFileBtn').click();
+        }
+    });
+});

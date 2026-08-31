@@ -19,7 +19,15 @@ class FieldMapper:
         mapper = FieldMapper()
 
         # Save mappings
-        mapper.save_mappings("supplier_a", {"SKU": "ProductID", "Name": "Description"})
+        mapper.save_mappings(
+            "supplier_a",
+            {
+                "SKU": "ProductNumber",
+                "Name": "Description",
+                "Price": "Price",
+                "Category": "ProductGroup",
+            },
+        )
 
         # Get mappings
         mappings = mapper.get_mappings("supplier_a")
@@ -382,7 +390,6 @@ class FieldMapper:
         logger.info("=" * 50)
 
     # ========== Auto-Detection ==========
-
     def detect_mapping_suggestions(
         self,
         df: pd.DataFrame,
@@ -527,7 +534,7 @@ if __name__ == "__main__":
     mapper.save_mappings(
         "supplier_a",
         {
-            "SKU": "ProductID",
+            "SKU": "ProductNumber",
             "Name": "Description",
             "Price": "Price",
             "Category": "ProductGroup",
