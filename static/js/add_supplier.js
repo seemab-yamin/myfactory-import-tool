@@ -12,15 +12,15 @@ async function fetchTargetSchema() {
         const response = await fetch('/api/schema');
         if (!response.ok) throw new Error('Failed to fetch schema');
         const data = await response.json();
-        targetColumns = data.columns || [];
+        const allColumns = data.columns || [];
+        const excludedColumns = ['ProductID'];
+        targetColumns = allColumns.filter(col => !excludedColumns.includes(col.name));
         targetColumnNames = targetColumns.map(c => c.name);
 
         // Dynamically determine mandatory fields (NOT NULL)
         mandatoryFields = targetColumns
             .filter(c => c.nullable === false)
             .map(c => c.name);
-
-        console.log(`Found ${targetColumns.length} fields, ${mandatoryFields.length} mandatory`);
         return targetColumns;
     } catch (e) {
         console.error('Error fetching schema:', e);
