@@ -6,7 +6,7 @@
     "db_port": 1433,
     "db_connection_timeout": 30,
     "auth_method": "windows",
-    "default_table": "tdProducts",
+    "default_products_table": "tdProducts",
     "default_supplier": "default",
     "default_delimiter": ",",
     "default_batch_size": 1000,
