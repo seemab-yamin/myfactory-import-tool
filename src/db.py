@@ -253,7 +253,6 @@ class DatabaseManager:
                             "type": c.data_type,
                             "nullable": c.is_nullable,
                             "identity": c.is_identity,
-                            "default": c.default_value,
                         }
                         for c in columns
                     ]

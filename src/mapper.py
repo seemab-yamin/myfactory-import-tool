@@ -99,33 +99,38 @@ class FieldMapper:
         source_field: str,
         target_field: str,
         is_active: bool = True,
+        is_prepopulated: bool = False,
     ) -> MappingConfig:
         """
         Save a single mapping.
 
         Args:
             supplier_name: Name of the supplier
-            source_field: Source field name (from CSV)
+            source_field: Source field name (from CSV) or '__prepopulated__'
             target_field: Target field name (database column)
             is_active: Whether this mapping is active
+            is_prepopulated: Whether this field uses a default value
 
         Returns:
             Created/updated MappingConfig instance
         """
+
         with local_session() as session:
             # Check if mapping exists
             existing = (
                 session.query(MappingConfig)
                 .filter(
                     MappingConfig.supplier_name == supplier_name,
-                    MappingConfig.source_field == source_field,
+                    MappingConfig.target_field == target_field,
                 )
                 .first()
             )
 
             if existing:
+                existing.source_field = source_field
                 existing.target_field = target_field
                 existing.is_active = is_active
+                existing.is_prepopulated = is_prepopulated
                 mapping = existing
                 logger.info(f"Updated mapping: {source_field} -> {target_field}")
             else:
@@ -134,15 +139,13 @@ class FieldMapper:
                     source_field=source_field,
                     target_field=target_field,
                     is_active=is_active,
+                    is_prepopulated=is_prepopulated,
                 )
                 session.add(mapping)
                 logger.info(f"Created mapping: {source_field} -> {target_field}")
 
             session.commit()
-
-            # Clear cache
             self._cache.clear()
-
             return mapping
 
     def save_mappings(
@@ -524,6 +527,45 @@ def get_mapper() -> FieldMapper:
     if _mapper is None:
         _mapper = FieldMapper()
     return _mapper
+
+
+def get_mappings_with_details(
+    self, supplier_name: str, active_only: bool = True
+) -> Dict[str, Dict[str, Any]]:
+    """
+    Get all mappings for a supplier with full details.
+
+    Args:
+        supplier_name: Name of the supplier
+        active_only: Only return active mappings
+
+    Returns:
+        Dictionary mapping target_field -> {source_field, is_prepopulated}
+    """
+    cache_key = f"details_{supplier_name}_{active_only}"
+    if cache_key in self._cache:
+        return self._cache[cache_key]
+
+    with local_session() as session:
+        query = session.query(MappingConfig).filter(
+            MappingConfig.supplier_name == supplier_name
+        )
+
+        if active_only:
+            query = query.filter(MappingConfig.is_active == True)
+
+        mappings = query.all()
+
+        result = {}
+        for m in mappings:
+            result[m.target_field] = {
+                "source_field": m.source_field,
+                "is_prepopulated": m.is_prepopulated,
+                "is_active": m.is_active,
+            }
+
+        self._cache[cache_key] = result
+        return result
 
 
 # ========== Example Usage ==========

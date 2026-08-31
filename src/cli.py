@@ -1,10 +1,10 @@
+"""CLI command parser for MyFactory Import Tool."""
+
 import argparse
 import json
 import sys
 from datetime import datetime
 from pathlib import Path
-
-from sqlalchemy import text
 
 from src.config_manager import ensure_configured, get_config_manager
 from src.db import get_db_manager
@@ -17,241 +17,27 @@ from src.schema_scanner import get_scanner
 logger = get_logger(__name__)
 
 
-def cli_import(args):
-    """Import command: import file with supplier mapping."""
-
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
-
-    logger.info(f"📁 Importing file: {args.file}")
-    logger.info(f"🏷️ Supplier: {args.supplier}")
-    logger.info(f"🔍 Dry run: {args.dry_run}")
-
-    importer = get_importer()
-
-    config = {
-        "file_path": args.file,
-        "supplier_name": args.supplier or "default",
-        "dry_run": args.dry_run,
-        "batch_size": args.batch or 1000,
-        "table_name": args.table or "tdProducts",
-        "delimiter": args.delimiter or None,
-    }
-
-    result = importer.import_file(config)
-
-    # Print summary
-    print("\n" + "=" * 70)
-    print(f"📊 IMPORT SUMMARY")
-    print("=" * 70)
-    print(f"Status:        {result.status.value.upper()}")
-    print(f"Total rows:    {result.total_rows}")
-    print(f"✅ Imported:   {result.imported_rows}")
-    print(f"❌ Failed:    {result.failed_rows}")
-    print(f"⏭️ Skipped:   {result.skipped_rows}")
-    print(f"Log file:      {result.log_file}")
-
-    if result.errors:
-        print(f"\n⚠️ Errors:")
-        for error in result.errors[:5]:
-            print(f"  - {error}")
-
-    print("=" * 70)
-
-    if result.status in [ImportStatus.SUCCESS, ImportStatus.DRY_RUN]:
-        sys.exit(0)
-    else:
-        sys.exit(1)
-
-
-def cli_list_mappings(args):
-    """List mappings for a supplier."""
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
-
-    mapper = get_mapper()
-
-    if args.supplier:
-        mappings = mapper.get_mappings(args.supplier)
-        summary = mapper.get_mapping_summary(args.supplier)
-
-        print(f"\n📋 Mappings for supplier: {args.supplier}")
-        print("=" * 50)
-        print(f"Total: {summary['total']}")
-        print(f"Active: {summary['active']}")
-        print(f"Inactive: {summary['inactive']}")
-        print("=" * 50)
-
-        if mappings:
-            print(f"\n{'Source Field':<30} → {'Target Field':<30}")
-            print("-" * 60)
-            for source, target in mappings.items():
-                print(f"{source:<30} → {target:<30}")
-        else:
-            print("\n⚠️ No mappings found for this supplier.")
-    else:
-        suppliers = mapper.get_all_suppliers()
-        print(f"\n📋 All suppliers with mappings:")
-        print("=" * 30)
-        for s in suppliers:
-            count = len(mapper.get_mappings(s))
-            print(f"  {s}: {count} mappings")
-        print("=" * 30)
-
-
-def cli_save_mapping(args):
-    """Save a mapping for a supplier."""
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
-
-    mapper = get_mapper()
-    mapper.save_mapping(args.supplier, args.source, args.target, args.active)
-    print(f"✅ Mapping saved: {args.source} → {args.target} for {args.supplier}")
-
-
-def cli_history(args):
-    """Show import history."""
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
-
-    importer = get_importer()
-    history = importer.get_import_history(args.supplier, args.limit or 20)
-
-    if not history:
-        print("📋 No import history found.")
-        return
-
-    print(f"\n📋 Import History{' for ' + args.supplier if args.supplier else ''}")
-    print("=" * 80)
-    print(f"{'ID':<6} {'Date':<20} {'Status':<12} {'Rows':<8} {'File'}")
-    print("-" * 80)
-
-    for entry in history:
-        date = entry["started_at"][:19] if entry["started_at"] else "N/A"
-        status = entry["status"]
-        rows = entry["rows_succeeded"]
-        file_name = Path(entry.get("file_path", "")).name
-        print(f"{entry['id']:<6} {date:<20} {status:<12} {rows:<8} {file_name}")
-
-    print("=" * 80)
-
-
-def cli_setup(args):
-    """Run interactive setup."""
-    config = get_config_manager()
-    success = config.interactive_setup()
-    if success:
-        print("\n✅ Setup completed successfully!")
-        print(config.get_config_summary())
-    else:
-        print("\n❌ Setup failed. Please try again.")
-        sys.exit(1)
-
-
-def cli_test_connection(args):
-    """Test database connection."""
-    config = get_config_manager()
-    if not config.is_configured():
-        print("❌ Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
-
-    db = get_db_manager()
-    if db.test_myfactory_connection():
-        print("✅ Database connection successful!")
-        print(f"   Server: {db.get_myfactory_server()}")
-        print(f"   Database: {db.get_myfactory_database()}")
-
-        # List tables
-        try:
-            tables = []
-            with db.myfactory_session() as session:
-                result = session.execute(
-                    text(
-                        "SELECT TABLE_NAME FROM INFORMATION_SCHEMA.TABLES WHERE TABLE_TYPE='BASE TABLE'"
-                    )
-                )
-                tables = [row[0] for row in result.fetchall()]
-
-            print(f"   Tables: {len(tables)} found")
-            if args.verbose:
-                print("   Sample tables:", ", ".join(tables[:10]))
-        except Exception:
-            pass
-    else:
-        print("❌ Database connection failed. Please check your credentials.")
-        sys.exit(1)
-
-
-def cli_clear_credentials(args):
-    """Clear stored credentials."""
-    config = get_config_manager()
-    config.clear_credentials()
-    print("✅ Credentials cleared.")
-
-
-def cli_export_mappings(args):
-    """Export mappings to JSON."""
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
-
-    mapper = get_mapper()
-    mappings = mapper.get_mappings(args.supplier)
-
-    output = {
-        "supplier": args.supplier,
-        "exported_at": datetime.utcnow().isoformat(),
-        "mappings": mappings,
-    }
-
-    if args.output:
-        with open(args.output, "w") as f:
-            json.dump(output, f, indent=2)
-        print(f"✅ Mappings exported to: {args.output}")
-    else:
-        print(json.dumps(output, indent=2))
-
-
-# ========== CLI Parser ==========
-
-
 def create_parser():
     """Create command-line argument parser."""
     parser = argparse.ArgumentParser(
         prog="myfactory-import",
         description="MyFactory Import Tool - Import products from CSV/Excel to Myfactory CRM",
         formatter_class=argparse.RawDescriptionHelpFormatter,
-        epilog="""
-    Examples:
-    # Import a file
-    python main.py import --file data.csv --supplier ACME
-    
-    # Dry run (preview only)
-    python main.py import --file data.csv --supplier ACME --dry-run
-    
-    # List mappings for a supplier
-    python main.py list-mappings --supplier ACME
-    
-    # Save a mapping
-    python main.py save-mapping --supplier ACME --source SKU
-    
-    # Show import history
-    python main.py history --supplier ACME --limit 20
-    
-    # Run interactive setup
-    python main.py setup
-    
-    # Start API server
-    python main.py api --port 8000
-        """,
+    )
+    parser.add_argument(
+        "--api",
+        action="store_true",
+        help="Start the API server (default: launch Web UI)",
+    )
+    parser.add_argument(
+        "--port",
+        type=int,
+        default=8000,
+        help="Port for API server (default: 8000)",
     )
 
     subparsers = parser.add_subparsers(dest="command", help="Command to execute")
-    subparsers.required = False  # Make optional for auto-UI
+    subparsers.required = False
 
     # Import command
     import_parser = subparsers.add_parser("import", help="Import a file")
@@ -335,17 +121,6 @@ def create_parser():
     export_parser.add_argument("-o", "--output", help="Output file path")
     export_parser.set_defaults(func=cli_export_mappings)
 
-    # API command
-    api_parser = subparsers.add_parser("api", help="Start API server")
-    api_parser.add_argument(
-        "--host", default="127.0.0.1", help="Host to bind (default: 127.0.0.1)"
-    )
-    api_parser.add_argument(
-        "--port", type=int, default=8000, help="Port to bind (default: 8000)"
-    )
-    api_parser.add_argument("--reload", action="store_true", help="Enable auto-reload")
-    api_parser.set_defaults(func=cli_api)
-
     # Schema command
     schema_parser = subparsers.add_parser("schema", help="Show table schema")
     schema_parser.add_argument("-t", "--table", default="tdProducts", help="Table name")
@@ -354,21 +129,190 @@ def create_parser():
     )
     schema_parser.add_argument("--refresh", action="store_true", help="Refresh cache")
     schema_parser.add_argument(
-        "--show-all",
-        action="store_true",
-        help="Show both tdProducts schemas",
+        "--show-all", action="store_true", help="Show all tables"
     )
     schema_parser.set_defaults(func=cli_schema)
+
     return parser
 
 
-def cli_api(args):
-    print(f"🚀 Starting API server at http://{args.host}:{args.port}")
-    print(f"📚 API docs at http://{args.host}:{args.port}/docs")
+# ========== CLI Functions ==========
 
-    import uvicorn
 
-    uvicorn.run("src.main:app", host=args.host, port=args.port, reload=args.reload)
+def cli_import(args):
+    """Import command: import file with supplier mapping."""
+
+    if not ensure_configured():
+        logger.error("Configuration not set up. Run 'python main.py setup' first.")
+        sys.exit(1)
+
+    logger.info(f"📁 Importing file: {args.file}")
+    logger.info(f"🏷️ Supplier: {args.supplier}")
+    logger.info(f"🔍 Dry run: {args.dry_run}")
+
+    importer = get_importer()
+    config = {
+        "file_path": args.file,
+        "supplier_name": args.supplier or "default",
+        "dry_run": args.dry_run,
+        "batch_size": args.batch or 1000,
+        "table_name": args.table or "tdProducts",
+        "delimiter": args.delimiter or None,
+    }
+    result = importer.import_file(config)
+
+    print("\n" + "=" * 70)
+    print("📊 IMPORT SUMMARY")
+    print("=" * 70)
+    print(f"Status:        {result.status.value.upper()}")
+    print(f"Total rows:    {result.total_rows}")
+    print(f"✅ Imported:   {result.imported_rows}")
+    print(f"❌ Failed:    {result.failed_rows}")
+    print(f"⏭️ Skipped:   {result.skipped_rows}")
+    print(f"Log file:      {result.log_file}")
+
+    if result.errors:
+        print("\n⚠️ Errors:")
+        for error in result.errors[:5]:
+            print(f"  - {error}")
+    print("=" * 70)
+
+    if result.status in [ImportStatus.SUCCESS, ImportStatus.DRY_RUN]:
+        sys.exit(0)
+    else:
+        sys.exit(1)
+
+
+def cli_list_mappings(args):
+    """List mappings for a supplier."""
+    if not ensure_configured():
+        logger.error("Configuration not set up. Run 'python main.py setup' first.")
+        sys.exit(1)
+
+    mapper = get_mapper()
+
+    if args.supplier:
+        mappings = mapper.get_mappings(args.supplier)
+        summary = mapper.get_mapping_summary(args.supplier)
+        print(f"\n📋 Mappings for supplier: {args.supplier}")
+        print("=" * 50)
+        print(f"Total: {summary['total']}")
+        print(f"Active: {summary['active']}")
+        print(f"Inactive: {summary['inactive']}")
+        print("=" * 50)
+
+        if mappings:
+            print(f"\n{'Source Field':<30} → {'Target Field':<30}")
+            print("-" * 60)
+            for source, target in mappings.items():
+                print(f"{source:<30} → {target:<30}")
+        else:
+            print("\n⚠️ No mappings found for this supplier.")
+    else:
+        suppliers = mapper.get_all_suppliers()
+        print(f"\n📋 All suppliers with mappings:")
+        print("=" * 30)
+        for s in suppliers:
+            count = len(mapper.get_mappings(s))
+            print(f"  {s}: {count} mappings")
+        print("=" * 30)
+
+
+def cli_save_mapping(args):
+    """Save a mapping for a supplier."""
+    if not ensure_configured():
+        logger.error("Configuration not set up. Run 'python main.py setup' first.")
+        sys.exit(1)
+
+    mapper = get_mapper()
+    mapper.save_mapping(args.supplier, args.source, args.target, args.active)
+    print(f"✅ Mapping saved: {args.source} → {args.target} for {args.supplier}")
+
+
+def cli_history(args):
+    """Show import history."""
+    if not ensure_configured():
+        logger.error("Configuration not set up. Run 'python main.py setup' first.")
+        sys.exit(1)
+
+    importer = get_importer()
+    history = importer.get_import_history(args.supplier, args.limit or 20)
+
+    if not history:
+        print("📋 No import history found.")
+        return
+
+    print(f"\n📋 Import History{' for ' + args.supplier if args.supplier else ''}")
+    print("=" * 80)
+    print(f"{'ID':<6} {'Date':<20} {'Status':<12} {'Rows':<8} {'File'}")
+    print("-" * 80)
+
+    for entry in history:
+        date = entry["started_at"][:19] if entry["started_at"] else "N/A"
+        status = entry["status"]
+        rows = entry["rows_succeeded"]
+        file_name = Path(entry.get("file_path", "")).name
+        print(f"{entry['id']:<6} {date:<20} {status:<12} {rows:<8} {file_name}")
+    print("=" * 80)
+
+
+def cli_setup(args):
+    """Run interactive setup."""
+    config = get_config_manager()
+    success = config.interactive_setup()
+    if success:
+        print("\n✅ Setup completed successfully!")
+        print(config.get_config_summary())
+    else:
+        print("\n❌ Setup failed. Please try again.")
+        sys.exit(1)
+
+
+def cli_test_connection(args):
+    """Test database connection."""
+    config = get_config_manager()
+    if not config.is_configured():
+        print("❌ Configuration not set up. Run 'python main.py setup' first.")
+        sys.exit(1)
+
+    db = get_db_manager()
+    if db.test_myfactory_connection():
+        print("✅ Database connection successful!")
+        print(f"   Server: {db.get_myfactory_server()}")
+        print(f"   Database: {db.get_myfactory_database()}")
+    else:
+        print("❌ Database connection failed. Please check your credentials.")
+        sys.exit(1)
+
+
+def cli_clear_credentials(args):
+    """Clear stored credentials."""
+    config = get_config_manager()
+    config.clear_credentials()
+    print("✅ Credentials cleared.")
+
+
+def cli_export_mappings(args):
+    """Export mappings to JSON."""
+    if not ensure_configured():
+        logger.error("Configuration not set up. Run 'python main.py setup' first.")
+        sys.exit(1)
+
+    mapper = get_mapper()
+    mappings = mapper.get_mappings(args.supplier)
+
+    output = {
+        "supplier": args.supplier,
+        "exported_at": datetime.utcnow().isoformat(),
+        "mappings": mappings,
+    }
+
+    if args.output:
+        with open(args.output, "w") as f:
+            json.dump(output, f, indent=2)
+        print(f"✅ Mappings exported to: {args.output}")
+    else:
+        print(json.dumps(output, indent=2))
 
 
 def cli_schema(args):
@@ -378,9 +322,13 @@ def cli_schema(args):
         logger.error("Configuration not set up. Run 'python main.py setup' first.")
         sys.exit(1)
 
-    from rich import box
-    from rich.console import Console
-    from rich.table import Table
+    try:
+        from rich import box
+        from rich.console import Console
+        from rich.table import Table
+    except ImportError:
+        print("❌ 'rich' package not installed. Run: pip install rich")
+        sys.exit(1)
 
     console = Console()
     scanner = get_scanner()
@@ -390,7 +338,11 @@ def cli_schema(args):
         console.print(f"[green]✅ Cache refreshed for {args.table}[/green]")
         return
 
-    tables_to_scan = [args.table]
+    if args.show_all:
+        tables_to_scan = ["tdProducts"]
+    else:
+        tables_to_scan = [args.table]
+
     for table_name in tables_to_scan:
         if not scanner.table_exists(table_name):
             console.print(f"[yellow]⚠️ Table '{table_name}' not found[/yellow]")
@@ -404,10 +356,7 @@ def cli_schema(args):
             console.print(f"\n[bold]Total: {len(names)} columns[/bold]")
             continue
 
-        # Build Rich Table
         columns = scanner.get_table_schema(table_name)
-
-        # Create table with box styling
         table = Table(
             title=f"[bold cyan]📊 Schema: {table_name}[/bold cyan]",
             box=box.HEAVY,
@@ -415,12 +364,10 @@ def cli_schema(args):
             show_header=True,
             header_style="bold magenta",
         )
-
         table.add_column("#", style="dim", width=4)
         table.add_column("Column Name", style="green", min_width=25)
         table.add_column("Data Type", style="yellow", min_width=20)
         table.add_column("Nullable", style="cyan", width=10)
-        table.add_column("Primary Key", style="red", width=12)
 
         for idx, col in enumerate(columns, 1):
             nullable = "YES" if col.get("nullable", True) else "NO"

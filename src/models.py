@@ -46,6 +46,7 @@ class MappingConfig(Base):
     source_field: Mapped[str] = mapped_column(String(100), nullable=False)
     target_field: Mapped[str] = mapped_column(String(100), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_prepopulated: Mapped[bool] = mapped_column(Boolean, default=False)
 
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(

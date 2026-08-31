@@ -1,12 +1,13 @@
+#!/usr/bin/env python3
+"""Main entry point for MyFactory Import Tool."""
+
 import sys
 
 from src.cli import create_parser
 from src.logger import get_logger
-from src.web_ui import launch_web_ui
+from src.web.ui_launcher import launch_web_ui
 
 logger = get_logger(__name__)
-
-# ========== Main Entrypoint ==========
 
 
 def main():

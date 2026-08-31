@@ -9,7 +9,7 @@ async function loadSchema(useCache = true) {
     try {
         const cacheParam = (useCache === true || useCache === false) ? useCache : true;
         const url = `/api/schema?use_cache=${cacheParam}&simplified=false`;
-        console.log('🔍 Fetching schema with use_cache:', cacheParam);
+
 
         const response = await fetch(url);
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
@@ -29,9 +29,6 @@ async function loadSchema(useCache = true) {
 function renderSchema(data, container) {
     let html = '';
     let entries = [];
-
-    // 🔍 Log what we received
-    console.log('📦 renderSchema received:', data);
 
     // Check if data is the new format with columns array
     if (data && data.columns) {
@@ -109,8 +106,6 @@ async function refreshSchemaData() {
         const response = await fetch('/api/schema?refresh_cache=true&use_cache=false');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
         const data = await response.json();
-
-        console.log('🔄 Schema refreshed:', data);
 
         // Render the fresh data
         renderSchema(data, container);
