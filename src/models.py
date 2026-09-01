@@ -24,6 +24,42 @@ class Base(DeclarativeBase):
     pass
 
 
+class Supplier(Base):
+    """Supplier table with source_fields stored as JSON array."""
+
+    __tablename__ = "suppliers"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    name: Mapped[str] = mapped_column(
+        String(100), nullable=False, unique=True, index=True
+    )
+    source_fields: Mapped[Optional[List[str]]] = mapped_column(
+        JSON, nullable=True, default=[]
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    # ✅ Relationship to mappings
+    mappings: Mapped[List["MappingConfig"]] = relationship(
+        "MappingConfig", back_populates="supplier"
+    )
+
+    def __repr__(self) -> str:
+        return f"<Supplier(id={self.id}, name={self.name})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "name": self.name,
+            "source_fields": self.source_fields or [],
+            "created_at": self.created_at.isoformat() if self.created_at else None,
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+
 class ImportStatus(str, Enum):
     """Import status enumeration."""
 
@@ -103,34 +139,46 @@ class MappingConfig(Base):
 
     __tablename__ = "mapping_config"
     __table_args__ = (
-        UniqueConstraint("supplier_name", "target_field_id", name="uq_supplier_source"),
+        UniqueConstraint("supplier_id", "target_field_id", name="uq_supplier_source"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    supplier_name: Mapped[str] = mapped_column(String(100), nullable=False)
+
+    # ✅ Replace supplier_name with supplier_id (FK)
+    supplier_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("suppliers.id"), nullable=False
+    )
+
+    # ✅ Relationship back to Supplier
+    supplier_name: Mapped["Supplier"] = relationship(
+        "Supplier", back_populates="mappings"
+    )
+
     source_field: Mapped[str] = mapped_column(String(100), nullable=False)
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_mandatory: Mapped[bool] = mapped_column(Boolean, default=False)
-    prepopulated_value: Mapped[Optional[str]] = mapped_column(
-        String(255), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
     target_field_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("target_fields.id"), nullable=True
     )
     target_field = relationship("TargetField", back_populates="mapping_config")
 
+    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_mandatory: Mapped[bool] = mapped_column(Boolean, default=False)
+    prepopulated_value: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
     def __repr__(self) -> str:
-        return f"<MappingConfig(supplier={self.supplier_name}, source={self.source_field}->{self.target_field})>"
+        return f"<MappingConfig(id={self.id}, supplier_id={self.supplier_id}, source={self.source_field})>"
 
     def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
         return {
             "id": self.id,
-            "supplier_name": self.supplier_name,
+            "supplier_id": self.supplier_id,
+            "supplier_name": self.supplier_name.name if self.supplier_name else None,
             "source_field": self.source_field,
             "target_field": self.target_field.field_name if self.target_field else None,
             "is_active": self.is_active,
