@@ -17,6 +17,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
+
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
 
@@ -131,7 +132,7 @@ class MappingConfig(Base):
             "id": self.id,
             "supplier_name": self.supplier_name,
             "source_field": self.source_field,
-            "target_field": self.target_field,
+            "target_field": self.target_field.field_name if self.target_field else None,
             "is_active": self.is_active,
             "is_mandatory": self.is_mandatory,
             "prepopulated_value": self.prepopulated_value,

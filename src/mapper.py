@@ -55,11 +55,9 @@ class FieldMapper:
             )
             if active_only:
                 query = query.filter(MappingConfig.is_active == True)
-            mappings = query.all()
-            result = {m.source_field: m.target_field for m in mappings}
-            self._cache[cache_key] = result
-            logger.debug(f"Loaded {len(result)} mappings for supplier '{mapping_name}'")
-            return result
+            mappings = [m.to_dict() for m in query.all()]
+            self._cache[cache_key] = mappings
+            return mappings
 
     def get_mapping_by_source(
         self, supplier_name: str, source_field: str
@@ -230,31 +228,6 @@ class FieldMapper:
             suppliers = session.query(MappingConfig.supplier_name).distinct().all()
             return [s[0] for s in suppliers]
 
-    def get_mapping_summary(self, supplier_name: str) -> Dict[str, Any]:
-        """
-        Get summary of mappings for a supplier.
-
-        Returns:
-            Dict with count, active_count, inactive_count, mappings
-        """
-        with local_session() as session:
-            all_mappings = (
-                session.query(MappingConfig)
-                .filter(MappingConfig.supplier_name == supplier_name)
-                .all()
-            )
-
-            active = [m for m in all_mappings if m.is_active]
-            inactive = [m for m in all_mappings if not m.is_active]
-
-            return {
-                "supplier_name": supplier_name,
-                "total": len(all_mappings),
-                "active": len(active),
-                "inactive": len(inactive),
-                "mappings": [m.to_dict() for m in all_mappings],
-            }
-
     # ========== Mapping Application ==========
 
     def apply_mapping(
@@ -281,7 +254,6 @@ class FieldMapper:
 
         # Create new DataFrame with mapped columns
         mapped_data = {}
-        unmapped_columns = []
         missing_columns = []
 
         for source_field, target_field in mapping.items():

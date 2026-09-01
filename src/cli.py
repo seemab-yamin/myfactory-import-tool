@@ -193,12 +193,8 @@ def cli_list_mappings(args):
 
     if args.supplier:
         mappings = mapper.get_mappings(args.supplier)
-        summary = mapper.get_mapping_summary(args.supplier)
         print(f"\n📋 Mappings for supplier: {args.supplier}")
         print("=" * 50)
-        print(f"Total: {summary['total']}")
-        print(f"Active: {summary['active']}")
-        print(f"Inactive: {summary['inactive']}")
         print("=" * 50)
 
         if mappings:

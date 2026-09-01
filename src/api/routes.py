@@ -182,20 +182,17 @@ async def api_get_mappings_list():
 
 
 @router.get("/api/mappings/{mapping}")
-async def api_get_mappings(mapping: str, active_only: bool = True):
+async def api_get_mappings(mapping: str, active_only: bool = False):
     """Return full mapping for a specific mapping."""
     if not ensure_configured():
         raise HTTPException(
             status_code=400, detail="Database not configured. Run setup first."
         )
-
     mapper = get_mapper()
     mappings = mapper.get_mappings(mapping, active_only)
-    summary = mapper.get_mapping_summary(mapping)
-
     return {
-        "mapping": mapping,
-        "summary": summary,
+        "mapping_name": mapping,
+        "total_mappings": len(mappings),
         "mappings": mappings,
     }
 

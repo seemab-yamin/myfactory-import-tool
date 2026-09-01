@@ -344,7 +344,7 @@ function updateMapping(targetId, sourceColumn) {
         }
     } else if (valueInput && valueInput.value.trim()) {
         currentMappings[targetId] = {
-            source: 'prepopulated',
+            source: 'Pre-Populated',
             prepopulated: true,
             value: valueInput.value.trim()
         };
