@@ -174,11 +174,31 @@ class MappingConfig(Base):
     def __repr__(self) -> str:
         return f"<MappingConfig(id={self.id}, supplier_id={self.supplier_id}, source={self.source_field})>"
 
+    @classmethod
+    def create_from_supplier(
+        cls,
+        supplier_id: int,
+        source_field: str,
+        target_field: Optional[TargetField] = None,
+        is_mandatory: bool = False,
+        prepopulated_value: Optional[str] = None,
+        is_active: bool = True,
+    ) -> "MappingConfig":
+        """Factory method to create a mapping for a supplier."""
+        return cls(
+            supplier_id=supplier_id,
+            source_field=source_field,
+            target_field=target_field,
+            is_mandatory=is_mandatory,
+            prepopulated_value=prepopulated_value,
+            is_active=is_active,
+        )
+
     def to_dict(self) -> Dict[str, Any]:
         return {
             "id": self.id,
             "supplier_id": self.supplier_id,
-            "supplier_name": self.supplier_name.name if self.supplier_name else None,
+            "supplier_name": self.supplier.name if self.supplier else None,
             "source_field": self.source_field,
             "target_field": self.target_field.field_name if self.target_field else None,
             "is_active": self.is_active,
