@@ -502,10 +502,10 @@ async function checkSupplierName() {
     }
 
     try {
-        const response = await fetch(`/api/mappings/${name}`);
+        const response = await fetch(`/api/mapping_name/exists/${encodeURIComponent(name)}`);
         if (response.ok) {
             const data = await response.json();
-            const exists = data.summary && data.summary.total > 0;
+            const exists = data.exists === true;
             if (exists) {
                 input.classList.add('is-invalid');
                 input.classList.remove('is-valid');

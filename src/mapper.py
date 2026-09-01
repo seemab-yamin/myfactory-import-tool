@@ -59,6 +59,18 @@ class FieldMapper:
             self._cache[cache_key] = mappings
             return mappings
 
+    def mapping_name_exists(self, mapping_name: str) -> bool:
+        """Check if a supplier has any mappings (lightweight with LIMIT 1)."""
+        with local_session() as session:
+            exists = (
+                session.query(MappingConfig.id)
+                .filter(MappingConfig.supplier_name == mapping_name)
+                .limit(1)
+                .first()
+                is not None
+            )
+            return exists
+
     def get_mapping_by_source(
         self, supplier_name: str, source_field: str
     ) -> Optional[str]:

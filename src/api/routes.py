@@ -180,6 +180,17 @@ async def api_get_mappings_list():
     return {"mappings": mappings, "total": len(mappings)}
 
 
+@router.get("/api/mapping_name/exists/{supplier_name}")
+async def mapping_name_exists(supplier_name: str):
+    if not ensure_configured():
+        raise HTTPException(status_code=400, detail="Database not configured.")
+
+    mapper = get_mapper()
+    exists = mapper.mapping_name_exists(supplier_name)
+
+    return {"supplier_name": supplier_name, "exists": exists}
+
+
 @router.get("/api/mappings/{mapping}")
 async def api_get_mappings(mapping: str, active_only: bool = False):
     """Return full mapping for a specific mapping."""
