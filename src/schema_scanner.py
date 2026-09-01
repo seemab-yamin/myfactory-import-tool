@@ -59,8 +59,8 @@ class SchemaScanner:
         columns = self.get_table_schema(table_name, use_cache)
         return [
             {
-                "name": col.get("name", ""),
-                "type": col.get("type", "unknown"),
+                "name": col["name"],
+                "type": col["type"],
             }
             for col in columns
         ]
@@ -157,22 +157,3 @@ def get_column_names(table_name: str = "tdProducts") -> List[str]:
 def refresh_schema_cache(table_name: Optional[str] = None):
     """Refresh the schema cache."""
     return get_scanner().refresh_cache(table_name)
-
-
-# ========== Example Usage ==========
-if __name__ == "__main__":
-    scanner = get_scanner()
-
-    # Get full schema
-    schema = scanner.get_table_schema("tdProducts")
-    print(f"Found {len(schema)} columns")
-    if schema:
-        print(f"First column: {schema[0]}")
-
-    # Get simplified for mapping
-    mapping_columns = scanner.get_columns_for_mapping("tdProducts")
-    print(f"Mapping columns: {mapping_columns[:5]}...")
-
-    # Get summary
-    summary = scanner.get_schema_summary("tdProducts")
-    print(f"Summary: {summary}")

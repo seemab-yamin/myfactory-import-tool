@@ -1,11 +1,103 @@
 // ===== State =====
 let parsedColumns = [];
-let targetColumns = [];           // Full schema: [{name, nullable, type, ...}]
-let targetColumnNames = [];       // Just names for dropdown
+let targetColumns = [];           // Full schema: [{id, name, nullable, type, ...}]
 let mandatoryFields = [];         // Dynamic: fields where nullable === false
 let currentMappings = {};
 let supplierExists = false;
 let prepopulatedValues = {};
+
+// ===== Step Unlock State =====
+let step1Complete = false;
+let step2Complete = false;
+
+// ===== DOM References =====
+const supplierNameInput = document.getElementById('supplierName');
+const sampleFileInput = document.getElementById('sampleFile');
+const parseFileBtn = document.getElementById('parseFileBtn');
+const mappingArea = document.getElementById('mappingArea');
+const noFileMessage = document.getElementById('noFileMessage');
+const saveBtn = document.getElementById('saveBtn');
+
+// ===== Step Management =====
+function updateStepStates() {
+    // Step 1: Supplier Name
+    const name = supplierNameInput.value.trim();
+    step1Complete = name.length > 0 && !supplierExists;
+
+    // Step 2: File Upload (enabled only if Step 1 is complete)
+    sampleFileInput.disabled = !step1Complete;
+    parseFileBtn.disabled = !step1Complete;
+
+    // Step 3: Mapping (enabled only if Step 2 is complete)
+    const mappingSelects = document.querySelectorAll('.source-select');
+    const prepopulatedInputs = document.querySelectorAll('.prepopulated-value');
+    mappingSelects.forEach(select => select.disabled = !step2Complete);
+    prepopulatedInputs.forEach(input => input.disabled = !step2Complete);
+
+    // Update UI feedback
+    updateStepIndicators();
+}
+
+function updateStepIndicators() {
+    // Get all step cards using data-step attribute
+    document.querySelectorAll('[data-step]').forEach(card => {
+        const step = parseInt(card.dataset.step);
+        const isActive = (step === getCurrentStep());
+        const isCompleted = (step < getCurrentStep());
+        card.classList.toggle('active', isActive);
+        card.classList.toggle('completed', isCompleted);
+    });
+
+    // Update status badges using data attributes
+    updateStepStatus(1, step1Complete, 'Enter supplier name', 'Name already exists');
+    updateStepStatus(2, step2Complete, 'Upload a file', '');
+}
+
+// Helper: get current active step
+function getCurrentStep() {
+    if (!step1Complete) return 1;
+    if (!step2Complete) return 2;
+    return 3;
+}
+
+
+
+// Helper: update status badge for a step
+function updateStepStatus(step, isComplete, pendingMsg, errorMsg) {
+    const card = document.querySelector(`[data-step="${step}"]`);
+    if (!card) return;
+
+    const header = card.querySelector('.card-header');
+    let statusEl = header.querySelector('.step-status');
+
+    if (!statusEl) {
+        statusEl = document.createElement('span');
+        statusEl.className = 'step-status ms-2 badge';
+        header.appendChild(statusEl);
+    }
+
+    if (isComplete) {
+        statusEl.textContent = '✅ Complete';
+        statusEl.className = 'step-status ms-2 badge bg-success';
+    } else if (step === 1 && !step1Complete) {
+        const name = supplierNameInput.value.trim();
+        if (name.length === 0) {
+            statusEl.textContent = '⏳ ' + pendingMsg;
+            statusEl.className = 'step-status ms-2 badge bg-warning text-dark';
+        } else if (supplierExists) {
+            statusEl.textContent = '❌ ' + errorMsg;
+            statusEl.className = 'step-status ms-2 badge bg-danger';
+        }
+    } else if (step === 2 && !step2Complete) {
+        if (step1Complete) {
+            statusEl.textContent = '⏳ ' + pendingMsg;
+            statusEl.className = 'step-status ms-2 badge bg-warning text-dark';
+        } else {
+            statusEl.textContent = '🔒 Locked';
+            statusEl.className = 'step-status ms-2 badge bg-secondary';
+        }
+    }
+}
 
 // ===== Fetch Target Schema (Full) =====
 async function fetchTargetSchema() {
@@ -16,12 +108,12 @@ async function fetchTargetSchema() {
         const allColumns = data.columns || [];
         const excludedColumns = ['ProductID'];
         targetColumns = allColumns.filter(col => !excludedColumns.includes(col.name));
-        targetColumnNames = targetColumns.map(c => c.name);
 
-        // Dynamically determine mandatory fields (NOT NULL)
         mandatoryFields = targetColumns
             .filter(c => c.nullable === false)
-            .map(c => c.name);
+            .map(c => c.target_field_id);
+
+        console.log(`Found ${targetColumns.length} columns, ${mandatoryFields.length} mandatory`);
         return targetColumns;
     } catch (e) {
         console.error('Error fetching schema:', e);
@@ -62,11 +154,11 @@ async function parseSampleFile() {
         parsedColumns = data.columns || [];
         const preview = data.preview || [];
 
-        // Show preview
         previewDiv.style.display = 'block';
         renderPreview(preview);
 
-        // Build mapping UI (Database → File)
+        // ✅ Step 2 complete
+        step2Complete = true;
         buildMappingUI(targetColumns, parsedColumns);
 
         statusDiv.innerHTML = `<span class="text-success">✅ Parsed ${parsedColumns.length} columns</span>`;
@@ -76,6 +168,8 @@ async function parseSampleFile() {
         statusDiv.innerHTML = `<span class="text-danger">❌ ${e.message}</span>`;
         showToast('Error', e.message, 'danger');
     }
+
+    updateStepStates();
 }
 
 // ===== Force Refresh Schema =====
@@ -102,9 +196,9 @@ async function forceRefreshSchema() {
     } finally {
         btn.disabled = false;
         btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Force Refresh Schema';
-        btn.innerHTML = '<i class="bi bi-arrow-clockwise"></i> Force Refresh Schema';
     }
 }
+
 // ===== Render Preview =====
 function renderPreview(preview) {
     const head = document.getElementById('previewHead');
@@ -124,11 +218,9 @@ function renderPreview(preview) {
 
 // ===== Build Mapping UI with Enhanced Columns =====
 function buildMappingUI(targetCols, fileCols) {
-    const area = document.getElementById('mappingArea');
-    const noFile = document.getElementById('noFileMessage');
     const tbody = document.getElementById('mappingTableBody');
-    area.style.display = 'block';
-    noFile.style.display = 'none';
+    mappingArea.style.display = 'block';
+    noFileMessage.style.display = 'none';
     currentMappings = {};
     prepopulatedValues = {};
 
@@ -139,130 +231,144 @@ function buildMappingUI(targetCols, fileCols) {
         if (!aRequired && bRequired) return 1;
         return 0;
     });
+
     let html = '';
     sortedTargetCols.forEach((col, index) => {
         const isMandatory = col.nullable === false;
         const rowId = `row-${index}`;
-        html += `
-            <tr id="${rowId}">
+        const fieldId = col.target_field_id;
+
+        html += `<tr id="${rowId}">
                 <td>${index + 1}</td>
                 <td>
                     <strong>${col.name}</strong>
                     ${isMandatory ? '<span class="text-danger">*</span>' : ''}
                     <br><span class="text-muted small">${col.type || ''}</span>
+                    <br><span class="text-muted small">ID: ${fieldId}</span>
                 </td>
                 <td>
-                    <select class="form-select form-select-sm source-select" data-target="${col.name}" data-row="${rowId}">
+                    <select class="form-select form-select-sm source-select" data-target-id="${fieldId}">
                         <option value="">— ignore —</option>
                         ${fileCols.map(fc => `<option value="${fc}">${fc}</option>`).join('')}
                     </select>
                 </td>
                 <td class="text-center">
-                    <input type="checkbox" class="form-check-input mandatory-check" data-target="${col.name}" 
-                           ${isMandatory ? 'checked disabled' : ''}>
-                </td>
-                <td class="text-center">
-                    <input type="checkbox" class="form-check-input prepopulated-check" data-target="${col.name}" data-row="${rowId}">
+                    <input type="checkbox" class="form-check-input mandatory-check" data-target-id="${fieldId}" 
+                        ${isMandatory ? 'checked disabled' : ''}>
                 </td>
                 <td>
                     <input type="text" class="form-control form-control-sm prepopulated-value"
-                           data-target="${col.name}" placeholder="Default value..." disabled>
+                        data-target-id="${fieldId}" placeholder="Pre Populated value...">
                 </td>
             </tr>
         `;
     });
+
     tbody.innerHTML = html;
+    step2Complete = true;
+
     // Add event listeners
     document.querySelectorAll('.source-select').forEach(select => {
         select.addEventListener('change', function () {
-            const targetField = this.dataset.target;
+            const targetId = parseInt(this.dataset.targetId);
             const sourceColumn = this.value;
-            const rowId = this.dataset.row;
-            updateMapping(targetField, sourceColumn, rowId);
+            updateMapping(targetId, sourceColumn);
         });
     });
+
     document.querySelectorAll('.mandatory-check').forEach(checkbox => {
         checkbox.addEventListener('change', function () {
-            const targetField = this.dataset.target;
-            updateValidation(targetField);
-        });
-    });
-    document.querySelectorAll('.prepopulated-check').forEach(checkbox => {
-        checkbox.addEventListener('change', function () {
-            const targetField = this.dataset.target;
-            const rowId = this.dataset.row;
-            const valueInput = document.querySelector(`.prepopulated-value[data-target="${targetField}"]`);
-            if (this.checked) {
-                valueInput.disabled = false;
-                valueInput.focus();
+            const targetId = parseInt(this.dataset.targetId);
+            const isChecked = this.checked;
+
+            if (isChecked) {
+                if (!mandatoryFields.includes(targetId)) {
+                    mandatoryFields.push(targetId);
+                }
             } else {
-                valueInput.disabled = true;
-                valueInput.value = '';
-                delete prepopulatedValues[targetField];
+                const col = targetColumns.find(c => c.target_field_id === targetId);
+                if (col && col.nullable !== false) {
+                    mandatoryFields = mandatoryFields.filter(id => id !== targetId);
+                } else if (col && col.nullable === false) {
+                    this.checked = true;
+                    showToast('Warning', 'This field is required by the database and cannot be made optional', 'warning');
+                    return;
+                }
             }
-            updateMapping(targetField, null, rowId);
+
+            updateValidation(targetId);
+            showMandatorySummary();
+            updateMappingStatus();
         });
     });
+
     document.querySelectorAll('.prepopulated-value').forEach(input => {
         input.addEventListener('input', function () {
-            const targetField = this.dataset.target;
+            const targetId = parseInt(this.dataset.targetId);
+            const sourceSelect = document.querySelector(`.source-select[data-target-id="${targetId}"]`);
+
             if (this.value.trim()) {
-                prepopulatedValues[targetField] = this.value.trim();
+                if (sourceSelect) {
+                    sourceSelect.value = '';
+                }
+                prepopulatedValues[targetId] = this.value.trim();
             } else {
-                delete prepopulatedValues[targetField];
+                delete prepopulatedValues[targetId];
             }
-            updateValidation(targetField);
+
+            updateMapping(targetId, null);
         });
     });
+
     showMandatorySummary();
     updateMappingStatus();
+    updateStepStates();
 }
+
 // ===== Update Mapping =====
-function updateMapping(targetField, sourceColumn, rowId) {
-    const sourceSelect = document.querySelector(`.source-select[data-target="${targetField}"]`);
-    const prepopulatedCheck = document.querySelector(`.prepopulated-check[data-target="${targetField}"]`);
-    const valueInput = document.querySelector(`.prepopulated-value[data-target="${targetField}"]`);
-    // Clear existing mapping
-    delete currentMappings[targetField];
-    // Case 1: Source field selected
+function updateMapping(targetId, sourceColumn) {
+    const sourceSelect = document.querySelector(`.source-select[data-target-id="${targetId}"]`);
+    const valueInput = document.querySelector(`.prepopulated-value[data-target-id="${targetId}"]`);
+
+    delete currentMappings[targetId];
+
     if (sourceColumn && sourceColumn !== '') {
-        currentMappings[targetField] = { source: sourceColumn, prepopulated: false, value: null };
-        // Uncheck prepopulated if source is selected
-        if (prepopulatedCheck) {
-            prepopulatedCheck.checked = false;
-            valueInput.disabled = true;
+        currentMappings[targetId] = {
+            source: sourceColumn,
+            prepopulated: false,
+            value: null
+        };
+        if (valueInput) {
             valueInput.value = '';
-            delete prepopulatedValues[targetField];
+            delete prepopulatedValues[targetId];
         }
+    } else if (valueInput && valueInput.value.trim()) {
+        currentMappings[targetId] = {
+            source: 'prepopulated',
+            prepopulated: true,
+            value: valueInput.value.trim()
+        };
+        prepopulatedValues[targetId] = valueInput.value.trim();
     }
-    // Case 2: Prepopulated checked
-    else if (prepopulatedCheck && prepopulatedCheck.checked) {
-        const value = valueInput.value.trim();
-        if (value) {
-            currentMappings[targetField] = { source: null, prepopulated: true, value: value };
-        } else {
-            // Show error if prepopulated is checked but no value
-            valueInput.classList.add('is-invalid');
-        }
-    }
-    updateValidation(targetField);
+
+    updateValidation(targetId);
     updateMappingStatus();
 }
+
 // ===== Update Validation for a Specific Field =====
-function updateValidation(targetField) {
-    const sourceSelect = document.querySelector(`.source-select[data-target="${targetField}"]`);
-    const prepopulatedCheck = document.querySelector(`.prepopulated-check[data-target="${targetField}"]`);
-    const valueInput = document.querySelector(`.prepopulated-value[data-target="${targetField}"]`);
-    const isMandatory = mandatoryFields.includes(targetField);
-    const rowId = sourceSelect ? sourceSelect.dataset.row : null;
-    // Remove existing validation states
+function updateValidation(targetId) {
+    const sourceSelect = document.querySelector(`.source-select[data-target-id="${targetId}"]`);
+    const valueInput = document.querySelector(`.prepopulated-value[data-target-id="${targetId}"]`);
+    const isMandatory = mandatoryFields.includes(targetId);
+
     if (sourceSelect) sourceSelect.classList.remove('is-invalid', 'is-valid');
     if (valueInput) valueInput.classList.remove('is-invalid', 'is-valid');
-    // If not mandatory, skip validation
+
     if (!isMandatory) return;
+
     const hasSource = sourceSelect && sourceSelect.value && sourceSelect.value !== '';
-    const hasPrepopulated = prepopulatedCheck && prepopulatedCheck.checked && valueInput && valueInput.value.trim();
-    // Validate: either source is selected OR prepopulated has a value
+    const hasPrepopulated = valueInput && valueInput.value.trim() !== '';
+
     if (!hasSource && !hasPrepopulated) {
         if (sourceSelect) sourceSelect.classList.add('is-invalid');
         if (valueInput) valueInput.classList.add('is-invalid');
@@ -272,19 +378,26 @@ function updateValidation(targetField) {
         if (sourceSelect && hasSource) sourceSelect.classList.add('is-valid');
     }
 }
+
 // ===== Show Mandatory Fields Summary =====
 function showMandatorySummary() {
     const summaryDiv = document.getElementById('mandatorySummary');
     const listSpan = document.getElementById('mandatoryList');
-    if (mandatoryFields.length) {
+
+    const mandatoryNames = targetColumns
+        .filter(col => mandatoryFields.includes(col.target_field_id))
+        .map(col => col.name);
+
+    if (mandatoryNames.length > 0) {
         summaryDiv.style.display = 'block';
-        listSpan.innerHTML = mandatoryFields.map(f =>
+        listSpan.innerHTML = mandatoryNames.map(f =>
             `<span class="badge bg-danger me-1">${f}</span>`
         ).join('');
     } else {
         summaryDiv.style.display = 'none';
     }
 }
+
 // ===== Update Mapping Status =====
 function updateMappingStatus() {
     const statusBadge = document.getElementById('mappingStatus');
@@ -293,9 +406,8 @@ function updateMappingStatus() {
     const totalMapped = Object.keys(currentMappings).length;
     const totalRequired = mandatoryFields.length;
 
-    // Check if all mandatory fields are mapped
-    const mandatoryMapped = mandatoryFields.every(f => {
-        const mapping = currentMappings[f];
+    const mandatoryMapped = mandatoryFields.every(id => {
+        const mapping = currentMappings[id];
         if (!mapping) return false;
         return (mapping.source && mapping.source !== '') || (mapping.prepopulated && mapping.value);
     });
@@ -304,14 +416,12 @@ function updateMappingStatus() {
 
     statusBadge.textContent = `${totalMapped}/${targetColumns.length} mapped (${totalMapped}/${totalRequired} required)`;
     statusBadge.className = `badge ${canSave ? 'bg-success' : 'bg-warning text-dark'}`;
-
     saveBtn.disabled = !canSave;
 }
 
 // ===== Save Mappings =====
 async function saveMappings() {
     const supplierName = document.getElementById('supplierName').value.trim();
-    const saveBtn = document.getElementById('saveBtn');
     const statusDiv = document.getElementById('saveStatus');
 
     if (!supplierName) {
@@ -325,15 +435,18 @@ async function saveMappings() {
         return;
     }
 
-    // Check mandatory mappings
-    const missingMandatory = mandatoryFields.filter(f => {
-        const mapping = currentMappings[f];
+    const missingMandatory = mandatoryFields.filter(id => {
+        const mapping = currentMappings[id];
         if (!mapping) return true;
         return !((mapping.source && mapping.source !== '') || (mapping.prepopulated && mapping.value));
     });
 
     if (missingMandatory.length) {
-        showToast('Error', `Missing required fields: ${missingMandatory.join(', ')}`, 'danger');
+        const missingNames = missingMandatory.map(id => {
+            const col = targetColumns.find(c => c.target_field_id === id);
+            return col ? col.name : id;
+        });
+        showToast('Error', `Missing required fields: ${missingNames.join(', ')}`, 'danger');
         return;
     }
 
@@ -341,25 +454,15 @@ async function saveMappings() {
     statusDiv.innerHTML = '<span class="text-info">⏳ Saving mappings...</span>';
 
     try {
-        for (const [targetField, mapping] of Object.entries(currentMappings)) {
-            let sourceField = mapping.source;
-            let targetValue = mapping.value;
-
-            // If prepopulated, we need to handle it differently
-            // We'll store the value in a special way or use a default
-            if (mapping.prepopulated && mapping.value) {
-                // For prepopulated values, we can store them as a special mapping
-                // or set a default value in the database
-                sourceField = '__prepopulated__';
-                targetValue = mapping.value;
-            }
-
+        for (const [targetId, mapping] of Object.entries(currentMappings)) {
+            let sourceField = mapping.source || '';
             const formData = new FormData();
-            formData.append('source_field', sourceField || '');
-            formData.append('target_field', targetField);
-            formData.append('active', 'true');
-            if (targetValue) {
-                formData.append('default_value', targetValue);
+            formData.append('source_field', sourceField);
+            formData.append('target_field_id', targetId);
+            formData.append('is_active', 'true');
+            formData.append('is_mandatory', mandatoryFields.includes(parseInt(targetId)) ? 'true' : 'false');
+            if (mapping.value) {
+                formData.append('prepopulated_value', mapping.value);
             }
 
             const response = await fetch(`/api/mappings/${supplierName}`, {
@@ -377,7 +480,7 @@ async function saveMappings() {
         showToast('Success', `Mappings saved for ${supplierName}`, 'success');
 
         setTimeout(() => {
-            window.location.href = `/suppliers/${encodeURIComponent(supplierName)}`;
+            window.location.href = `/mappings-list/${encodeURIComponent(supplierName)}`;
         }, 1500);
 
     } catch (e) {
@@ -396,6 +499,7 @@ async function checkSupplierName() {
     if (!name) {
         input.classList.remove('is-invalid', 'is-valid');
         supplierExists = false;
+        updateStepStates();
         return;
     }
 
@@ -426,6 +530,8 @@ async function checkSupplierName() {
         feedback.textContent = '⚠️ Could not verify availability. Please try again.';
         supplierExists = false;
     }
+
+    updateStepStates();
 }
 
 // ===== Manual Check Availability =====
@@ -444,21 +550,27 @@ function resetForm() {
     document.getElementById('saveStatus').innerHTML = '';
     document.getElementById('mappingStatus').textContent = '0 mapped';
     document.getElementById('mappingStatus').className = 'badge bg-warning text-dark';
-    document.getElementById('saveBtn').disabled = true;
+    saveBtn.disabled = true;
     supplierExists = false;
     parsedColumns = [];
     currentMappings = {};
     prepopulatedValues = {};
+    step1Complete = false;
+    step2Complete = false;
+    updateStepStates();
 }
 
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', async function () {
     await fetchTargetSchema();
 
-    document.getElementById('supplierName').addEventListener('input', checkSupplierName);
-    document.getElementById('sampleFile').addEventListener('change', function () {
+    supplierNameInput.addEventListener('input', checkSupplierName);
+    sampleFileInput.addEventListener('change', function () {
         if (this.files.length) {
             document.getElementById('parseFileBtn').click();
         }
     });
+
+    // Initial state
+    updateStepStates();
 });

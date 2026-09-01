@@ -190,21 +190,20 @@ class DatabaseManager:
     ) -> List[Dict[str, Any]]:
         """
         Get column information for a table from Myfactory database.
-
-        Args:
-            table_name: Name of the table
-            use_cache: If True, use cached columns from local DB
-
-        Returns:
-            List of column dictionaries
+        If cache exists, return from SQLite with target_field_id.
+        Otherwise, fetch from MSSQL, insert into SQLite, and return with IDs.
         """
-        # Check cache first
+
+        # ✅ Step 1: Check cache first
         if use_cache:
             cached = self._get_cached_columns(table_name)
             if cached:
+                logger.info(
+                    f"Returning {len(cached)} cached columns from SQLite for {table_name}"
+                )
                 return cached
 
-        # Query from database
+        # ✅ Step 2: Fetch from MSSQL
         engine = self._get_myfactory_engine()
         if engine is None:
             return []
@@ -212,6 +211,7 @@ class DatabaseManager:
         try:
             inspector = inspect(engine)
             columns = inspector.get_columns(table_name)
+
             result = []
             for col in columns:
                 result.append(
@@ -225,31 +225,45 @@ class DatabaseManager:
                         "autoincrement": col.get("autoincrement", False),
                     }
                 )
-            # Cache the results
+
+            # ✅ Step 3: Insert into SQLite (this will generate target_field_id)
             self._cache_columns(table_name, result)
-            logger.info(f"Discovered {len(result)} columns in {table_name}")
+
+            # ✅ Step 4: Fetch back from SQLite with IDs
+            cached_with_ids = self._get_cached_columns(table_name)
+            if cached_with_ids:
+                logger.info(
+                    f"✅ Inserted and retrieved {len(cached_with_ids)} columns from SQLite with IDs"
+                )
+                return cached_with_ids
+
+            # ✅ Fallback: return without IDs if SQLite fetch fails
+            logger.warning(
+                "SQLite cache fetch failed, returning MSSQL data without IDs"
+            )
             return result
+
         except Exception as e:
             logger.error(f"Failed to get columns from {table_name}: {e}")
-            # gracefully stop and report failed to get columns
-            return []
+            return self._get_fallback_columns()
 
     def _get_cached_columns(self, table_name: str) -> Optional[List[Dict[str, Any]]]:
         """Get cached columns from local database."""
         try:
-            from src.models import ProductColumn
+            from src.models import TargetField
 
             with self.local_session() as session:
                 columns = (
-                    session.query(ProductColumn)
-                    .filter(ProductColumn.table_name == table_name)
+                    session.query(TargetField)
+                    .filter(TargetField.table_name == table_name)
                     .all()
                 )
 
                 if columns:
                     return [
                         {
-                            "name": c.column_name,
+                            "target_field_id": c.id,
+                            "name": c.field_name,
                             "type": c.data_type,
                             "nullable": c.is_nullable,
                             "identity": c.is_identity,
@@ -262,21 +276,22 @@ class DatabaseManager:
         return None
 
     def _cache_columns(self, table_name: str, columns: List[Dict[str, Any]]) -> None:
-        """Cache column information in local database."""
+        """Cache column information in local SQLite database."""
+
         try:
-            from src.models import ProductColumn
+            from src.models import TargetField
 
             with self.local_session() as session:
                 # Clear existing cache for this table
-                session.query(ProductColumn).filter(
-                    ProductColumn.table_name == table_name
+                session.query(TargetField).filter(
+                    TargetField.table_name == table_name
                 ).delete()
 
-                # Add new cache entries
+                # Add new cache entries (SQLite will auto-generate target_field_id)
                 for col in columns:
-                    product_col = ProductColumn(
+                    product_col = TargetField(
                         table_name=table_name,
-                        column_name=col["name"],
+                        field_name=col["name"],
                         data_type=col["type"],
                         is_nullable=col.get("nullable", True),
                         is_identity=col.get("autoincrement", False),
@@ -284,7 +299,11 @@ class DatabaseManager:
                     )
                     session.add(product_col)
 
-                logger.info(f"Cached {len(columns)} columns for {table_name}")
+                session.commit()
+                logger.info(
+                    f"✅ Cached {len(columns)} columns for {table_name} in SQLite"
+                )
+
         except Exception as e:
             logger.warning(f"Failed to cache columns: {e}")
 
@@ -409,27 +428,3 @@ def get_table_columns(
 ) -> List[Dict[str, Any]]:
     """Get columns for a table in Myfactory database."""
     return get_db_manager().get_table_columns(table_name, use_cache)
-
-
-# ========== Example Usage ==========
-if __name__ == "__main__":
-    db = get_db_manager()
-
-    # Test local DB
-    print(f"Local DB: {LOCAL_DB_PATH}")
-    with local_session() as session:
-        result = session.execute(text("SELECT 1"))
-        print(f"Local DB test: {result.fetchone()}")
-
-    # Test Myfactory connection
-    print("\nTesting Myfactory connection...")
-    if db.test_myfactory_connection():
-        print("✅ Myfactory connection successful")
-
-        # Get columns
-        columns = db.get_table_columns("tdProducts", use_cache=False)
-        print(f"Found {len(columns)} columns")
-        if columns:
-            print(f"First column: {columns[0]}")
-    else:
-        print("❌ Myfactory connection failed")

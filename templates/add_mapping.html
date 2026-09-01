@@ -1,11 +1,11 @@
 {% extends 'base.html' %}
 {% block title %}
-  Add New Supplier Mapping
+  Add New Mapping
 {% endblock %}
 
 {% block content %}
   <div class="container-fluid">
-    <h1>➕ Add New Supplier Mapping</h1>
+    <h1>➕ Add New Mapping</h1>
     <p class="text-muted">Set up column mappings for a new supplier by uploading a sample file.</p>
 
     <!-- ===== STEP 1: Supplier Name ===== -->
@@ -80,11 +80,10 @@
             <table class="table table-bordered table-hover">
               <thead class="table-light">
                 <tr>
-                  <th style="width:30px;">#</th>
+                  <th style="width:5%;">#</th>
                   <th style="width:20%;">DB Field</th>
                   <th style="width:25%;">Source Field (from file)</th>
                   <th style="width:10%;">Mandatory</th>
-                  <th style="width:10%;">Pre-Populated</th>
                   <th style="width:20%;">Prepopulated Value</th>
                 </tr>
               </thead>
@@ -103,7 +102,7 @@
           <div class="mt-3 d-flex gap-2">
             <button class="btn btn-success" onclick="saveMappings()" id="saveBtn" disabled><i class="bi bi-save"></i> Save Mapping</button>
             <button class="btn btn-outline-secondary" onclick="resetForm()"><i class="bi bi-arrow-counterclockwise"></i> Reset</button>
-            <a href="/suppliers" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> Cancel</a>
+            <a href="/mappings-list" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> Cancel</a>
           </div>
           <div id="saveStatus" class="mt-2"></div>
         </div>

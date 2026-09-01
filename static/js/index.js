@@ -80,13 +80,13 @@ async function uploadFile() {
   }
 }
 
-// ===== Refresh Suppliers Dropdown =====
-async function refreshSuppliersDropdown() {
+// ===== Refresh Mappings Dropdown =====
+async function refreshMappingsDropdown() {
   try {
-    const response = await fetch('/api/suppliers');
-    if (!response.ok) throw new Error('Failed to fetch suppliers');
+    const response = await fetch('/api/mappings-list');
+    if (!response.ok) throw new Error('Failed to fetch mappings');
     const data = await response.json();
-    const suppliers = data.suppliers || [];
+    const mappings = data.mappings || [];
 
     const select = document.getElementById('supplierInput');
     const currentValue = select.value;
@@ -96,20 +96,20 @@ async function refreshSuppliersDropdown() {
     select.innerHTML = '';
     select.appendChild(newOption);
 
-    // Add existing suppliers
-    for (const s of suppliers) {
+    // Add existing mappings
+    for (const m of mappings) {
       const opt = document.createElement('option');
-      opt.value = s;
-      opt.textContent = s;
+      opt.value = m;
+      opt.textContent = m;
       select.appendChild(opt);
     }
 
     // Restore selection if it still exists
-    if (currentValue && suppliers.includes(currentValue)) {
+    if (currentValue && mappings.includes(currentValue)) {
       select.value = currentValue;
     }
   } catch (e) {
-    console.warn('Failed to refresh suppliers dropdown:', e);
+    console.warn('Failed to refresh mappings dropdown:', e);
   }
 }
 
@@ -117,7 +117,7 @@ async function refreshSuppliersDropdown() {
 function clearResult() {
   document.getElementById('result').innerHTML = '<p class="text-muted">Ready to import...</p>';
   document.getElementById('fileInput').value = '';
-  document.getElementById('newSupplierInput').value = '';
-  document.getElementById('newSupplierInput').style.display = 'none';
-  document.getElementById('supplierInput').value = 'default';
+  document.getElementById('newMappingInput').value = '';
+  document.getElementById('newMappingInput').style.display = 'none';
+  document.getElementById('mappingInput').value = 'default';
 }

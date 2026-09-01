@@ -9,13 +9,13 @@ from sqlalchemy import (
     JSON,
     Boolean,
     DateTime,
+    ForeignKey,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
-
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
@@ -33,25 +33,94 @@ class ImportStatus(str, Enum):
     DRY_RUN = "dry_run"
 
 
+class TargetField(Base):
+    """Cached product table column information."""
+
+    __tablename__ = "target_fields"
+    __table_args__ = (
+        UniqueConstraint("table_name", "field_name", name="uq_table_column"),
+    )
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    table_name: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="tdProducts"
+    )
+    field_name: Mapped[str] = mapped_column(String(100), nullable=False)
+    data_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
+    max_length: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
+    is_nullable: Mapped[bool] = mapped_column(Boolean, default=True)
+    is_identity: Mapped[bool] = mapped_column(Boolean, default=False)
+    default_value: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
+    discovered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    # relation
+    mapping_config = relationship("MappingConfig", back_populates="target_field")
+
+    def __repr__(self) -> str:
+        return f"<TargetField(table={self.table_name}, column={self.field_name}, type={self.data_type})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Convert to dictionary for serialization."""
+        return {
+            "id": self.id,
+            "table_name": self.table_name,
+            "field_name": self.field_name,
+            "data_type": self.data_type,
+            "max_length": self.max_length,
+            "is_nullable": self.is_nullable,
+            "is_identity": self.is_identity,
+            "default_value": self.default_value,
+            "discovered_at": (
+                self.discovered_at.isoformat() if self.discovered_at else None
+            ),
+            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+        }
+
+    @classmethod
+    def from_inspector(
+        cls, table_name: str, field_info: Dict[str, Any]
+    ) -> "TargetField":
+        """Create a TargetField from SQLAlchemy inspector data."""
+        return cls(
+            table_name=table_name,
+            field_name=field_info["name"],
+            data_type=str(field_info["type"]),
+            max_length=field_info.get("length"),
+            is_nullable=field_info.get("nullable", True),
+            is_identity=field_info.get("identity", False),
+            default_value=(
+                str(field_info.get("default")) if field_info.get("default") else None
+            ),
+        )
+
+
 class MappingConfig(Base):
     """Supplier-to-table field mapping configuration."""
 
     __tablename__ = "mapping_config"
     __table_args__ = (
-        UniqueConstraint("supplier_name", "source_field", name="uq_supplier_source"),
+        UniqueConstraint("supplier_name", "target_field_id", name="uq_supplier_source"),
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
     supplier_name: Mapped[str] = mapped_column(String(100), nullable=False)
     source_field: Mapped[str] = mapped_column(String(100), nullable=False)
-    target_field: Mapped[str] = mapped_column(String(100), nullable=False)
     is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_prepopulated: Mapped[bool] = mapped_column(Boolean, default=False)
-
+    is_mandatory: Mapped[bool] = mapped_column(Boolean, default=False)
+    prepopulated_value: Mapped[Optional[str]] = mapped_column(
+        String(255), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    target_field_id: Mapped[int] = mapped_column(
+        Integer, ForeignKey("target_fields.id"), nullable=True
+    )
+    target_field = relationship("TargetField", back_populates="mapping_config")
 
     def __repr__(self) -> str:
         return f"<MappingConfig(supplier={self.supplier_name}, source={self.source_field}->{self.target_field})>"
@@ -64,6 +133,8 @@ class MappingConfig(Base):
             "source_field": self.source_field,
             "target_field": self.target_field,
             "is_active": self.is_active,
+            "is_mandatory": self.is_mandatory,
+            "prepopulated_value": self.prepopulated_value,
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
         }
@@ -176,68 +247,6 @@ class ImportAudit(Base):
         self.error_message = error_message
         if details:
             self.details = details
-
-
-class ProductColumn(Base):
-    """Cached product table column information."""
-
-    __tablename__ = "product_columns"
-    __table_args__ = (
-        UniqueConstraint("table_name", "column_name", name="uq_table_column"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    table_name: Mapped[str] = mapped_column(
-        String(100), nullable=False, default="tdProducts"
-    )
-    column_name: Mapped[str] = mapped_column(String(100), nullable=False)
-    data_type: Mapped[Optional[str]] = mapped_column(String(50), nullable=True)
-    max_length: Mapped[Optional[int]] = mapped_column(Integer, nullable=True)
-    is_nullable: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_identity: Mapped[bool] = mapped_column(Boolean, default=False)
-    default_value: Mapped[Optional[str]] = mapped_column(String(255), nullable=True)
-
-    discovered_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
-
-    def __repr__(self) -> str:
-        return f"<ProductColumn(table={self.table_name}, column={self.column_name}, type={self.data_type})>"
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for serialization."""
-        return {
-            "id": self.id,
-            "table_name": self.table_name,
-            "column_name": self.column_name,
-            "data_type": self.data_type,
-            "max_length": self.max_length,
-            "is_nullable": self.is_nullable,
-            "is_identity": self.is_identity,
-            "default_value": self.default_value,
-            "discovered_at": (
-                self.discovered_at.isoformat() if self.discovered_at else None
-            ),
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
-
-    @classmethod
-    def from_inspector(
-        cls, table_name: str, column_info: Dict[str, Any]
-    ) -> "ProductColumn":
-        """Create a ProductColumn from SQLAlchemy inspector data."""
-        return cls(
-            table_name=table_name,
-            column_name=column_info["name"],
-            data_type=str(column_info["type"]),
-            max_length=column_info.get("length"),
-            is_nullable=column_info.get("nullable", True),
-            is_identity=column_info.get("identity", False),
-            default_value=(
-                str(column_info.get("default")) if column_info.get("default") else None
-            ),
-        )
 
 
 class ImportSettings(Base):
