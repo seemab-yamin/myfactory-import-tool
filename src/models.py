@@ -42,9 +42,9 @@ class Supplier(Base):
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
 
-    # ✅ Relationship to mappings
+    # ✅ Relationship to mappings (back_populates)
     mappings: Mapped[List["MappingConfig"]] = relationship(
-        "MappingConfig", back_populates="supplier"
+        "MappingConfig", back_populates="supplier", cascade="all, delete-orphan"
     )
 
     def __repr__(self) -> str:
