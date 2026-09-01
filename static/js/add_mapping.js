@@ -112,8 +112,6 @@ async function fetchTargetSchema() {
         mandatoryFields = targetColumns
             .filter(c => c.nullable === false)
             .map(c => c.target_field_id);
-
-        console.log(`Found ${targetColumns.length} columns, ${mandatoryFields.length} mandatory`);
         return targetColumns;
     } catch (e) {
         console.error('Error fetching schema:', e);

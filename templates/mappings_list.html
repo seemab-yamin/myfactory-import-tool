@@ -2,36 +2,16 @@
 {% block title %}
   Mappings List
 {% endblock %}
-{% block content %}
-  <div id="app">
-    <div id="listView">
-      <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <h5 class="mb-0"><i class="bi bi-people"></i> Mappings List</h5>
-          <button class="btn btn-sm btn-outline-primary" onclick="refreshMappings()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
-        </div>
-        <div class="card-body">
-          <div id="mappingGrid" class="row g-3"></div>
-        </div>
-      </div>
-    </div>
 
-    <div id="detailView" style="display:none;">
-      <div class="card">
-        <div class="card-header d-flex justify-content-between align-items-center">
-          <div>
-            <button class="btn btn-sm btn-outline-secondary" onclick="showListView()"><i class="bi bi-arrow-left"></i> Back</button>
-            <span id="detailTitle" class="ms-3"><strong></strong></span>
-          </div>
-          <span class="badge bg-primary" id="detailCount">0 mappings</span>
-        </div>
-        <div class="card-body">
-          <div id="detailContent">
-            <div class="text-center py-4">
-              <div class="spinner-border text-primary"></div>
-            </div>
-          </div>
-        </div>
+{% block content %}
+  <div id="listView">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <h5 class="mb-0"><i class="bi bi-people"></i> Mappings List</h5>
+        <button class="btn btn-sm btn-outline-primary" onclick="refreshMappings()"><i class="bi bi-arrow-clockwise"></i> Refresh</button>
+      </div>
+      <div class="card-body">
+        <div id="mappingGrid" class="row g-3"></div>
       </div>
     </div>
   </div>

@@ -1,0 +1,30 @@
+{% extends 'base.html' %}
+{% block title %}
+  Mappings for {{ supplier }}
+{% endblock %}
+
+{% block content %}
+  <div id="detailView">
+    <div class="card">
+      <div class="card-header d-flex justify-content-between align-items-center">
+        <div>
+          <a href="/mappings-list" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</a>
+          <span id="detailTitle" class="ms-3"><strong>{{ supplier }}</strong></span>
+        </div>
+        <span class="badge bg-primary" id="detailCount">0 mappings</span>
+      </div>
+      <div class="card-body">
+        <div id="detailContent">
+          <div class="text-center py-4">
+            <div class="spinner-border text-primary"></div>
+            <p class="mt-2">Loading mappings...</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+{% endblock %}
+
+{% block scripts %}
+  <script src="{{ url_for('static', path='js/show_mapping.js') }}"></script>
+{% endblock %}

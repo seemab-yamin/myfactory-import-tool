@@ -57,13 +57,12 @@ async def mappings_list_page(request: Request):
 
 
 @router.get("/mappings-list/{supplier_name}", response_class=HTMLResponse)
-async def mappings_page(request: Request, supplier_name: Optional[str] = None):
-    """Render mappings page with list and detail views."""
-
+async def mappings_page(request: Request, supplier_name: str):
+    """Render mappings detail page for a specific supplier."""
     if not templates:
         return HTMLResponse("Templates not found.")
     return templates.TemplateResponse(
-        request, "mappings_list.html", {"request": request, "supplier": supplier_name}
+        request, "show_mapping.html", {"request": request, "supplier": supplier_name}
     )
 
 
