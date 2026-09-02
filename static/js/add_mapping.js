@@ -5,7 +5,7 @@ let mandatoryFields = [];         // Dynamic: fields where nullable === false
 let currentMappings = {};
 let supplierExists = false;
 let prepopulatedValues = {};
-let allSupplierNames = [];        // ✅ Cached list of all supplier names
+let allSupplierNames = [];
 
 // ===== Step Unlock State =====
 let step1Complete = false;
@@ -93,12 +93,11 @@ function updateStepStatus(step, isComplete, pendingMsg, errorMsg) {
 // ===== Fetch All Suppliers (cached) =====
 async function fetchAllSuppliers() {
     try {
-        const response = await fetch('/api/suppliers');
+        const response = await fetch('/api/mappings-list');
         if (!response.ok) throw new Error('Failed to fetch suppliers');
         const data = await response.json();
-        // Expecting { suppliers: [{id, name, ...}] } or { suppliers: [...] }
         const suppliers = data.suppliers || [];
-        allSupplierNames = suppliers.map(s => s.name).filter(Boolean);
+        allSupplierNames = suppliers.map(s => s[1]).filter(Boolean);
         console.log('✅ Cached supplier names:', allSupplierNames);
         return allSupplierNames;
     } catch (e) {
@@ -121,7 +120,6 @@ function checkSupplierName() {
         return;
     }
 
-    // ✅ Check against cached list
     const exists = allSupplierNames.includes(name);
 
     if (exists) {
@@ -141,9 +139,7 @@ function checkSupplierName() {
 
 // ===== Manual Check Availability =====
 async function checkAvailability() {
-    // Force refresh the cache from server
     await fetchAllSuppliers();
-    // Then check again
     checkSupplierName();
 }
 
@@ -293,7 +289,7 @@ function buildMappingUI(targetCols, fileCols) {
                 </td>
                 <td>
                     <select class="form-select form-select-sm source-select" data-target-id="${fieldId}">
-                        <option value="">— ignore —</option>
+                        <option value="None">None</option>
                         ${fileCols.map(fc => `<option value="${fc}">${fc}</option>`).join('')}
                     </select>
                 </td>
@@ -352,16 +348,15 @@ function buildMappingUI(targetCols, fileCols) {
             const targetId = parseInt(this.dataset.targetId);
             const sourceSelect = document.querySelector(`.source-select[data-target-id="${targetId}"]`);
 
+            // ✅ Store prepopulated value separately (does NOT clear source)
             if (this.value.trim()) {
-                if (sourceSelect) {
-                    sourceSelect.value = '';
-                }
                 prepopulatedValues[targetId] = this.value.trim();
             } else {
                 delete prepopulatedValues[targetId];
             }
 
-            updateMapping(targetId, null);
+            // ✅ Update mapping without clearing source
+            updateMapping(targetId, sourceSelect ? sourceSelect.value : null);
         });
     });
 
@@ -375,26 +370,19 @@ function updateMapping(targetId, sourceColumn) {
     const sourceSelect = document.querySelector(`.source-select[data-target-id="${targetId}"]`);
     const valueInput = document.querySelector(`.prepopulated-value[data-target-id="${targetId}"]`);
 
+    // Clear existing mapping
     delete currentMappings[targetId];
 
-    if (sourceColumn && sourceColumn !== '') {
-        currentMappings[targetId] = {
-            source: sourceColumn,
-            prepopulated: false,
-            value: null
-        };
-        if (valueInput) {
-            valueInput.value = '';
-            delete prepopulatedValues[targetId];
-        }
-    } else if (valueInput && valueInput.value.trim()) {
-        currentMappings[targetId] = {
-            source: 'Pre-Populated',
-            prepopulated: true,
-            value: valueInput.value.trim()
-        };
-        prepopulatedValues[targetId] = valueInput.value.trim();
-    }
+    // ✅ Store both source AND prepopulated value if available
+    const hasSource = sourceColumn && sourceColumn !== '';
+    const hasPrepopulated = valueInput && valueInput.value.trim() !== '';
+
+    // ✅ Always store both if they exist
+    currentMappings[targetId] = {
+        source: hasSource ? sourceColumn : null,
+        prepopulated: hasPrepopulated,
+        value: hasPrepopulated ? valueInput.value.trim() : null
+    };
 
     updateValidation(targetId);
     updateMappingStatus();
@@ -414,6 +402,7 @@ function updateValidation(targetId) {
     const hasSource = sourceSelect && sourceSelect.value && sourceSelect.value !== '';
     const hasPrepopulated = valueInput && valueInput.value.trim() !== '';
 
+    // ✅ Either source OR prepopulated is required for mandatory fields
     if (!hasSource && !hasPrepopulated) {
         if (sourceSelect) sourceSelect.classList.add('is-invalid');
         if (valueInput) valueInput.classList.add('is-invalid');
@@ -454,6 +443,7 @@ function updateMappingStatus() {
     const mandatoryMapped = mandatoryFields.every(id => {
         const mapping = currentMappings[id];
         if (!mapping) return false;
+        // ✅ Either source OR prepopulated value is sufficient
         return (mapping.source && mapping.source !== '') || (mapping.prepopulated && mapping.value);
     });
 
@@ -468,7 +458,7 @@ function updateMappingStatus() {
 async function saveMappings() {
     const supplierName = document.getElementById('supplierName').value.trim();
     const statusDiv = document.getElementById('saveStatus');
-    const saveBtn = document.getElementById('saveBtn');  // ✅ Declare saveBtn
+    const saveBtn = document.getElementById('saveBtn');
 
     if (!supplierName) {
         showToast('Error', 'Please enter a supplier name', 'danger');
@@ -499,7 +489,6 @@ async function saveMappings() {
     saveBtn.disabled = true;
     statusDiv.innerHTML = '<span class="text-info">⏳ Saving mappings...</span>';
 
-    // ✅ Declare supplierID outside the loop
     let supplierID = null;
 
     try {
@@ -524,7 +513,6 @@ async function saveMappings() {
                 throw new Error(error.detail || 'Failed to save mapping');
             }
 
-            // ✅ Capture supplier_id from the first response only
             if (supplierID === null) {
                 const data = await response.json();
                 supplierID = data.supplier_id || data.supplier || null;
@@ -534,7 +522,6 @@ async function saveMappings() {
         statusDiv.innerHTML = '<span class="text-success">✅ Mappings saved successfully!</span>';
         showToast('Success', `Mappings saved for ${supplierName}`, 'success');
 
-        // ✅ Refresh supplier cache after successful save
         await fetchAllSuppliers();
 
         setTimeout(() => {
@@ -573,7 +560,7 @@ function resetForm() {
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', async function () {
     await fetchTargetSchema();
-    await fetchAllSuppliers();   // ✅ Preload supplier names
+    await fetchAllSuppliers();
 
     supplierNameInput.addEventListener('input', checkSupplierName);
     sampleFileInput.addEventListener('change', function () {
