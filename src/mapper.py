@@ -1,12 +1,13 @@
 """Dynamic field mapping for Myfactory import with CRUD operations."""
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 
 from src.db import local_session
 from src.logger import get_logger
-from src.models import MappingConfig, Supplier
+from src.models import MappingConfig, Supplier, TargetField
 
 logger = get_logger(__name__)
 
@@ -93,13 +94,13 @@ class FieldMapper:
 
     def save_mapping(
         self,
-        supplier_name: str,  # ✅ Now accepts name (string)
+        supplier_name: str,
         source_field: str,
         target_field_id: int,
         is_active: bool = True,
         is_mandatory: bool = False,
         prepopulated_value: Optional[str] = None,
-    ) -> MappingConfig:
+    ) -> Tuple[int, MappingConfig]:
         """
         Save a single mapping.
 
@@ -112,7 +113,7 @@ class FieldMapper:
             prepopulated_value: Optional value to prepopulate the target field
 
         Returns:
-            Created/updated MappingConfig instance
+            Tuple of (supplier_id, MappingConfig) - the supplier ID and the created/updated mapping
         """
 
         # ✅ Resolve supplier name to ID (using cached helper)
@@ -139,7 +140,7 @@ class FieldMapper:
                 logger.info(f"Updated mapping: {source_field} -> {target_field_id}")
             else:
                 mapping = MappingConfig(
-                    supplier_id=supplier_id,  # ✅ Use the resolved ID
+                    supplier_id=supplier_id,
                     source_field=source_field,
                     target_field_id=target_field_id,
                     is_active=is_active,
@@ -206,6 +207,108 @@ class FieldMapper:
             )
             suppliers = [(s.id, s.name) for s in suppliers]  # Convert to list of tuples
             return suppliers  # Return list of tuples (id, name) for better clarity
+
+    def get_supplier_by_id(self, supplier_id: int) -> Optional[Dict[str, Any]]:
+        """
+        Get supplier details by ID.
+
+        Args:
+            supplier_id: ID of the supplier
+
+        Returns:
+            Supplier details as dict, or None if not found
+        """
+        with local_session() as session:
+            supplier = (
+                session.query(Supplier).filter(Supplier.id == supplier_id).first()
+            )
+            if not supplier:
+                return None
+
+            return {
+                "id": supplier.id,
+                "name": supplier.name,
+                "source_fields": supplier.source_fields or [],
+                "created_at": (
+                    supplier.created_at.isoformat() if supplier.created_at else None
+                ),
+                "updated_at": (
+                    supplier.updated_at.isoformat() if supplier.updated_at else None
+                ),
+            }
+
+    def save_source_fields(self, supplier_id: int, source_fields: List[str]) -> bool:
+        """
+        Save the source fields (column headers) for a supplier.
+
+        Args:
+            supplier_id: ID of the supplier
+            source_fields: List of column names from the uploaded file
+
+        Returns:
+            True if saved successfully, False if supplier not found
+        """
+        with local_session() as session:
+            supplier = (
+                session.query(Supplier).filter(Supplier.id == supplier_id).first()
+            )
+            if not supplier:
+                logger.warning(f"Supplier with ID {supplier_id} not found")
+                return False
+
+            # ✅ Overwrite source_fields (replace, not merge)
+            supplier.source_fields = source_fields
+            supplier.updated_at = datetime.utcnow()
+            session.commit()
+
+            # Clear cache
+            self._supplier_cache.clear()
+
+            logger.info(
+                f"Saved {len(source_fields)} source fields for supplier ID {supplier_id}"
+            )
+            return True
+
+    def get_source_fields(self, supplier_id: int) -> Optional[List[str]]:
+        """
+        Get the source fields (column headers) for a supplier.
+
+        Args:
+            supplier_id: ID of the supplier
+
+        Returns:
+            List of column names, or None if supplier not found
+        """
+        with local_session() as session:
+            supplier = (
+                session.query(Supplier).filter(Supplier.id == supplier_id).first()
+            )
+            if not supplier:
+                logger.warning(f"Supplier with ID {supplier_id} not found")
+                return None
+
+            return supplier.source_fields or []
+
+    def get_target_fields(self) -> List[Dict[str, Any]]:
+        """
+        Get all available target fields from the target_fields table.
+
+        Returns:
+            List of target field dicts with id, field_name, data_type
+        """
+        with local_session() as session:
+            target_fields = (
+                session.query(TargetField).order_by(TargetField.field_name).all()
+            )
+            return [
+                {
+                    "id": tf.id,
+                    "field_name": tf.field_name,
+                    "data_type": tf.data_type,
+                    "is_nullable": tf.is_nullable,
+                }
+                for tf in target_fields
+            ]
 
     # ========== Mapping Application ==========
 
@@ -490,6 +593,7 @@ class FieldMapper:
         supplier_id = self._get_supplier_id(supplier_name)
         if supplier_id is not None:
             return supplier_id
+
         with local_session() as session:
             supplier = Supplier(name=supplier_name, source_fields=[])
             session.add(supplier)

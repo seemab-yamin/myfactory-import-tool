@@ -175,9 +175,16 @@ async function parseSampleFile() {
         return;
     }
 
+    const supplierName = document.getElementById('supplierName').value.trim();
+    if (!supplierName) {
+        statusDiv.innerHTML = '<span class="text-warning">⚠️ Please enter a supplier name first</span>';
+        return;
+    }
+
     const file = fileInput.files[0];
     const formData = new FormData();
     formData.append('file', file);
+    formData.append('supplier_name', supplierName);
 
     statusDiv.innerHTML = '<span class="text-info">⏳ Uploading & parsing...</span>';
 
@@ -195,7 +202,7 @@ async function parseSampleFile() {
         const data = await response.json();
         parsedColumns = data.columns || [];
         const preview = data.preview || [];
-
+        const supplierId = data.supplier_id;
         previewDiv.style.display = 'block';
         renderPreview(preview);
 
@@ -205,6 +212,7 @@ async function parseSampleFile() {
         statusDiv.innerHTML = `<span class="text-success">✅ Parsed ${parsedColumns.length} columns</span>`;
         showToast('Success', `Parsed ${parsedColumns.length} columns`, 'success');
 
+        window.supplierId = supplierId;
     } catch (e) {
         statusDiv.innerHTML = `<span class="text-danger">❌ ${e.message}</span>`;
         showToast('Error', e.message, 'danger');

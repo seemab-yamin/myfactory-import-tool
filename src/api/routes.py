@@ -62,21 +62,31 @@ async def mappings_page(request: Request, supplier_id: int):
     if not templates:
         return HTMLResponse("Templates not found.")
 
-    from src.models import Supplier
-
     mapper = get_mapper()
+
+    # ✅ Get supplier details with source_fields
+    supplier = mapper.get_supplier_by_id(supplier_id)
+    if not supplier:
+        raise HTTPException(
+            status_code=404, detail=f"Supplier with ID {supplier_id} not found"
+        )
+
+    # ✅ Get existing mappings
     supplier_mappings = mapper.get_inverse_mapping(supplier_id)
 
-    # ✅ Get supplier name for the title
-    supplier_name = None
-    if supplier_mappings:
-        # Fetch supplier name from DB
-        with local_session() as session:
-            supplier = (
-                session.query(Supplier).filter(Supplier.id == supplier_id).first()
-            )
-            if supplier:
-                supplier_name = supplier.name
+    # ✅ Get source fields (column headers from uploaded file)
+    source_fields = supplier.get("source_fields", [])
+
+    # ✅ Build mapping state: source_field -> target_field
+    mapping_state = {}
+    for field in source_fields:
+        # Check if this source field already has a mapping
+        mapped_target = None
+        for target, details in supplier_mappings.items():
+            if details.get("source_field") == field:
+                mapped_target = target
+                break
+        mapping_state[field] = mapped_target
 
     return templates.TemplateResponse(
         request,
@@ -84,8 +94,11 @@ async def mappings_page(request: Request, supplier_id: int):
         {
             "request": request,
             "supplier_id": supplier_id,
-            "supplier_name": supplier_name,
+            "supplier_name": supplier.get("name"),
+            "source_fields": source_fields,  # ✅ Pass source fields
+            "mapping_state": mapping_state,  # ✅ Pass mapping state
             "supplier_mappings": supplier_mappings,
+            "target_fields": mapper.get_target_fields(),  # ✅ All available target fields
         },
     )
 
@@ -253,7 +266,7 @@ async def api_save_mapping(
     is_mandatory: bool = Form(False),
     prepopulated_value: Optional[str] = Form(None),
 ):
-    """Save a mapping for a supplier by ID."""
+    """Save a mapping for a supplier."""
 
     if not ensure_configured():
         raise HTTPException(
@@ -378,39 +391,67 @@ async def api_schema(
 
 
 @router.post("/api/parse-sample")
-async def parse_sample_file(file: UploadFile = File(...)):
-    """Parse uploaded file and return column names + preview."""
+async def parse_sample_file(
+    file: UploadFile = File(...),
+    supplier_name: str = Form(...),
+):
+    """
+    Parse uploaded file and return column names + preview.
+    Also saves the source fields to the supplier record.
+    """
     from io import BytesIO
 
     import pandas as pd
 
     try:
         content = await file.read()
-        filename = file.filename.lower()
 
+        # Determine file type
+        filename = file.filename.lower()
         if filename.endswith(".csv"):
             df = pd.read_csv(BytesIO(content), nrows=5)
         elif filename.endswith((".xlsx", ".xls")):
             df = pd.read_excel(BytesIO(content), nrows=5)
         else:
-            raise HTTPException(status_code=400, detail="Unsupported file type.")
+            raise HTTPException(
+                status_code=400,
+                detail="Unsupported file type. Please upload CSV or Excel.",
+            )
 
         if df.empty:
             raise HTTPException(status_code=400, detail="File is empty")
 
+        # Get columns
         columns = list(df.columns)
+
+        # Get preview (first 5 rows)
         preview = (
             df.head(5)
             .replace({pd.NA: None, float("nan"): None})
             .to_dict(orient="records")
         )
 
+        # ✅ Save source fields to supplier
+        mapper = get_mapper()
+
+        # First, get or create the supplier
+        supplier_id = mapper._get_or_create_supplier(supplier_name)
+
+        # Then save the source fields
+        saved = mapper.save_source_fields(supplier_id, columns)
+
+        if not saved:
+            logger.warning(f"Failed to save source fields for supplier {supplier_name}")
+
         return {
             "columns": columns,
             "preview": preview,
             "row_count": len(df),
             "column_count": len(columns),
+            "supplier_id": supplier_id,
+            "source_fields_saved": saved,
         }
+
     except Exception as e:
         logger.error(f"Parse error: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
