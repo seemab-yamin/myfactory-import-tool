@@ -39,7 +39,7 @@ UPLOAD_DIR.mkdir(exist_ok=True)
 async def index(request: Request):
     """Home page."""
     if templates:
-        suppliers = get_mapper().get_all_mappings() if ensure_configured() else []
+        suppliers = get_mapper().get_all_suppliers() if ensure_configured() else []
         return templates.TemplateResponse(
             request, "index.html", {"request": request, "suppliers": suppliers}
         )
@@ -56,13 +56,37 @@ async def mappings_list_page(request: Request):
     )
 
 
-@router.get("/mappings-list/{supplier_name}", response_class=HTMLResponse)
-async def mappings_page(request: Request, supplier_name: str):
+@router.get("/show-mapping/{supplier_id:int}", response_class=HTMLResponse)
+async def mappings_page(request: Request, supplier_id: int):
     """Render mappings detail page for a specific supplier."""
     if not templates:
         return HTMLResponse("Templates not found.")
+
+    from src.models import Supplier
+
+    mapper = get_mapper()
+    supplier_mappings = mapper.get_inverse_mapping(supplier_id)
+
+    # ✅ Get supplier name for the title
+    supplier_name = None
+    if supplier_mappings:
+        # Fetch supplier name from DB
+        with local_session() as session:
+            supplier = (
+                session.query(Supplier).filter(Supplier.id == supplier_id).first()
+            )
+            if supplier:
+                supplier_name = supplier.name
+
     return templates.TemplateResponse(
-        request, "show_mapping.html", {"request": request, "supplier": supplier_name}
+        request,
+        "show_mapping.html",
+        {
+            "request": request,
+            "supplier_id": supplier_id,
+            "supplier_name": supplier_name,
+            "supplier_mappings": supplier_mappings,
+        },
     )
 
 
@@ -172,12 +196,13 @@ async def get_audit_detail(audit_id: int):
 
 @router.get("/api/mappings-list")
 async def api_get_mappings_list():
-    """Return list of all mappings."""
+    """Return list of all suppliers."""
+
     if not ensure_configured():
         raise HTTPException(status_code=400, detail="Database not configured.")
     mapper = get_mapper()
-    mappings = mapper.get_all_mappings()
-    return {"mappings": mappings, "total": len(mappings)}
+    suppliers = mapper.get_all_suppliers()
+    return {"suppliers": suppliers, "total": len(suppliers)}
 
 
 @router.get("/api/mapping_name/exists/{supplier_name}")
@@ -191,72 +216,92 @@ async def mapping_name_exists(supplier_name: str):
     return {"supplier_name": supplier_name, "exists": exists}
 
 
-@router.get("/api/mappings/{mapping}")
-async def api_get_mappings(mapping: str, active_only: bool = False):
-    """Return full mapping for a specific mapping."""
+@router.get("/api/mappings/{supplier_id:int}")
+async def api_get_mappings(supplier_id: int, active_only: bool = False):
+    """Return full mapping for a specific supplier by ID."""
+
     if not ensure_configured():
         raise HTTPException(
             status_code=400, detail="Database not configured. Run setup first."
         )
+
     mapper = get_mapper()
-    mappings = mapper.get_mappings(mapping, active_only)
+    mappings = mapper.get_mappings(supplier_id, active_only)
+
+    # Get supplier name for response
+    from src.db import local_session
+    from src.models import Supplier
+
+    with local_session() as session:
+        supplier = session.query(Supplier).filter(Supplier.id == supplier_id).first()
+        supplier_name = supplier.name if supplier else None
+
     return {
-        "mapping_name": mapping,
+        "supplier_id": supplier_id,
+        "supplier_name": supplier_name,
         "total_mappings": len(mappings),
-        "mappings": mappings,
+        "mappings": mappings,  # {source_field: target_field}
     }
 
 
-@router.post("/api/mappings/{mapping}")
+@router.post("/api/mappings/{supplier_name:str}")
 async def api_save_mapping(
-    mapping: str,
-    source_field: Optional[str] = Form(None),
-    target_field_id: str = Form(...),
+    supplier_name: str,
+    source_field: str = Form(...),
+    target_field_id: int = Form(...),
     is_active: bool = Form(True),
     is_mandatory: bool = Form(False),
     prepopulated_value: Optional[str] = Form(None),
 ):
-    """Save a mapping for a supplier."""
+    """Save a mapping for a supplier by ID."""
+
     if not ensure_configured():
         raise HTTPException(
             status_code=400, detail="Database not configured. Run setup first."
         )
 
     mapper = get_mapper()
-    mapper.save_mapping(
-        mapping,
-        source_field,
-        target_field_id,
-        is_active,
-        is_mandatory,
-        prepopulated_value,
+    supplier_id, _ = mapper.save_mapping(
+        supplier_name=supplier_name,
+        source_field=source_field,
+        target_field_id=target_field_id,
+        is_active=is_active,
+        is_mandatory=is_mandatory,
+        prepopulated_value=prepopulated_value,
     )
+
     return {
         "status": "created",
-        "mapping": mapping,
+        "supplier_id": supplier_id,
+        "supplier_name": supplier_name,
         "source_field": source_field,
         "target_field_id": target_field_id,
-        "active": is_active,
-        "mandatory": is_mandatory,
+        "is_active": is_active,
+        "is_mandatory": is_mandatory,
         "prepopulated_value": prepopulated_value,
     }
 
 
-@router.delete("/api/mappings/{mapping}/{source_field}")
-async def api_delete_mapping(mapping: str, source_field: str):
-    """Delete a mapping for a supplier."""
+@router.delete("/api/mappings/{supplier_id:int}/{source_field}")
+async def api_delete_mapping(supplier_id: int, source_field: str):
+    """Delete a mapping for a supplier by ID."""
+
     if not ensure_configured():
         raise HTTPException(
             status_code=400, detail="Database not configured. Run setup first."
         )
 
     mapper = get_mapper()
-    deleted = mapper.delete_mapping(mapping, source_field)
+    deleted = mapper.delete_mapping(supplier_id, source_field)
 
     if not deleted:
         raise HTTPException(status_code=404, detail="Mapping not found")
 
-    return {"status": "deleted", "mapping": mapping, "source_field": source_field}
+    return {
+        "status": "deleted",
+        "supplier_id": supplier_id,
+        "source_field": source_field,
+    }
 
 
 @router.post("/setup")

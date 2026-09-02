@@ -5,6 +5,7 @@ let mandatoryFields = [];         // Dynamic: fields where nullable === false
 let currentMappings = {};
 let supplierExists = false;
 let prepopulatedValues = {};
+let allSupplierNames = [];        // ✅ Cached list of all supplier names
 
 // ===== Step Unlock State =====
 let step1Complete = false;
@@ -20,26 +21,21 @@ const saveBtn = document.getElementById('saveBtn');
 
 // ===== Step Management =====
 function updateStepStates() {
-    // Step 1: Supplier Name
     const name = supplierNameInput.value.trim();
     step1Complete = name.length > 0 && !supplierExists;
 
-    // Step 2: File Upload (enabled only if Step 1 is complete)
     sampleFileInput.disabled = !step1Complete;
     parseFileBtn.disabled = !step1Complete;
 
-    // Step 3: Mapping (enabled only if Step 2 is complete)
     const mappingSelects = document.querySelectorAll('.source-select');
     const prepopulatedInputs = document.querySelectorAll('.prepopulated-value');
     mappingSelects.forEach(select => select.disabled = !step2Complete);
     prepopulatedInputs.forEach(input => input.disabled = !step2Complete);
 
-    // Update UI feedback
     updateStepIndicators();
 }
 
 function updateStepIndicators() {
-    // Get all step cards using data-step attribute
     document.querySelectorAll('[data-step]').forEach(card => {
         const step = parseInt(card.dataset.step);
         const isActive = (step === getCurrentStep());
@@ -48,21 +44,16 @@ function updateStepIndicators() {
         card.classList.toggle('completed', isCompleted);
     });
 
-    // Update status badges using data attributes
     updateStepStatus(1, step1Complete, 'Enter supplier name', 'Name already exists');
     updateStepStatus(2, step2Complete, 'Upload a file', '');
 }
 
-// Helper: get current active step
 function getCurrentStep() {
     if (!step1Complete) return 1;
     if (!step2Complete) return 2;
     return 3;
 }
 
-
-
-// Helper: update status badge for a step
 function updateStepStatus(step, isComplete, pendingMsg, errorMsg) {
     const card = document.querySelector(`[data-step="${step}"]`);
     if (!card) return;
@@ -97,6 +88,63 @@ function updateStepStatus(step, isComplete, pendingMsg, errorMsg) {
             statusEl.className = 'step-status ms-2 badge bg-secondary';
         }
     }
+}
+
+// ===== Fetch All Suppliers (cached) =====
+async function fetchAllSuppliers() {
+    try {
+        const response = await fetch('/api/suppliers');
+        if (!response.ok) throw new Error('Failed to fetch suppliers');
+        const data = await response.json();
+        // Expecting { suppliers: [{id, name, ...}] } or { suppliers: [...] }
+        const suppliers = data.suppliers || [];
+        allSupplierNames = suppliers.map(s => s.name).filter(Boolean);
+        console.log('✅ Cached supplier names:', allSupplierNames);
+        return allSupplierNames;
+    } catch (e) {
+        console.warn('Could not fetch suppliers:', e);
+        allSupplierNames = [];
+        return [];
+    }
+}
+
+// ===== Check Supplier Name Uniqueness (using cache) =====
+function checkSupplierName() {
+    const input = document.getElementById('supplierName');
+    const feedback = document.getElementById('supplierNameFeedback');
+    const name = input.value.trim();
+
+    if (!name) {
+        input.classList.remove('is-invalid', 'is-valid');
+        supplierExists = false;
+        updateStepStates();
+        return;
+    }
+
+    // ✅ Check against cached list
+    const exists = allSupplierNames.includes(name);
+
+    if (exists) {
+        input.classList.add('is-invalid');
+        input.classList.remove('is-valid');
+        feedback.textContent = '⚠️ This supplier name already exists. Please choose a different name.';
+        supplierExists = true;
+    } else {
+        input.classList.remove('is-invalid');
+        input.classList.add('is-valid');
+        feedback.textContent = '✅ Name is available';
+        supplierExists = false;
+    }
+
+    updateStepStates();
+}
+
+// ===== Manual Check Availability =====
+async function checkAvailability() {
+    // Force refresh the cache from server
+    await fetchAllSuppliers();
+    // Then check again
+    checkSupplierName();
 }
 
 // ===== Fetch Target Schema (Full) =====
@@ -155,7 +203,6 @@ async function parseSampleFile() {
         previewDiv.style.display = 'block';
         renderPreview(preview);
 
-        // ✅ Step 2 complete
         step2Complete = true;
         buildMappingUI(targetColumns, parsedColumns);
 
@@ -421,6 +468,7 @@ function updateMappingStatus() {
 async function saveMappings() {
     const supplierName = document.getElementById('supplierName').value.trim();
     const statusDiv = document.getElementById('saveStatus');
+    const saveBtn = document.getElementById('saveBtn');  // ✅ Declare saveBtn
 
     if (!supplierName) {
         showToast('Error', 'Please enter a supplier name', 'danger');
@@ -451,6 +499,9 @@ async function saveMappings() {
     saveBtn.disabled = true;
     statusDiv.innerHTML = '<span class="text-info">⏳ Saving mappings...</span>';
 
+    // ✅ Declare supplierID outside the loop
+    let supplierID = null;
+
     try {
         for (const [targetId, mapping] of Object.entries(currentMappings)) {
             let sourceField = mapping.source || '';
@@ -472,13 +523,22 @@ async function saveMappings() {
                 const error = await response.json();
                 throw new Error(error.detail || 'Failed to save mapping');
             }
+
+            // ✅ Capture supplier_id from the first response only
+            if (supplierID === null) {
+                const data = await response.json();
+                supplierID = data.supplier_id || data.supplier || null;
+            }
         }
 
         statusDiv.innerHTML = '<span class="text-success">✅ Mappings saved successfully!</span>';
         showToast('Success', `Mappings saved for ${supplierName}`, 'success');
 
+        // ✅ Refresh supplier cache after successful save
+        await fetchAllSuppliers();
+
         setTimeout(() => {
-            window.location.href = `/mappings-list/${encodeURIComponent(supplierName)}`;
+            window.location.href = `/show-mapping/${encodeURIComponent(supplierID)}`;
         }, 1500);
 
     } catch (e) {
@@ -486,55 +546,6 @@ async function saveMappings() {
         showToast('Error', e.message, 'danger');
         saveBtn.disabled = false;
     }
-}
-
-// ===== Check Supplier Name Uniqueness =====
-async function checkSupplierName() {
-    const input = document.getElementById('supplierName');
-    const feedback = document.getElementById('supplierNameFeedback');
-    const name = input.value.trim();
-
-    if (!name) {
-        input.classList.remove('is-invalid', 'is-valid');
-        supplierExists = false;
-        updateStepStates();
-        return;
-    }
-
-    try {
-        const response = await fetch(`/api/mapping_name/exists/${encodeURIComponent(name)}`);
-        if (response.ok) {
-            const data = await response.json();
-            const exists = data.exists === true;
-            if (exists) {
-                input.classList.add('is-invalid');
-                input.classList.remove('is-valid');
-                feedback.textContent = '⚠️ This supplier name already exists. Please choose a different name.';
-                supplierExists = true;
-            } else {
-                input.classList.remove('is-invalid');
-                input.classList.add('is-valid');
-                feedback.textContent = '✅ Name is available';
-                supplierExists = false;
-            }
-        } else {
-            input.classList.remove('is-invalid');
-            input.classList.add('is-valid');
-            feedback.textContent = '✅ Name is available';
-            supplierExists = false;
-        }
-    } catch (e) {
-        input.classList.remove('is-invalid', 'is-valid');
-        feedback.textContent = '⚠️ Could not verify availability. Please try again.';
-        supplierExists = false;
-    }
-
-    updateStepStates();
-}
-
-// ===== Manual Check Availability =====
-function checkAvailability() {
-    checkSupplierName();
 }
 
 // ===== Reset Form =====
@@ -555,12 +566,14 @@ function resetForm() {
     prepopulatedValues = {};
     step1Complete = false;
     step2Complete = false;
+    allSupplierNames = [];
     updateStepStates();
 }
 
 // ===== Init =====
 document.addEventListener('DOMContentLoaded', async function () {
     await fetchTargetSchema();
+    await fetchAllSuppliers();   // ✅ Preload supplier names
 
     supplierNameInput.addEventListener('input', checkSupplierName);
     sampleFileInput.addEventListener('change', function () {
@@ -569,6 +582,5 @@ document.addEventListener('DOMContentLoaded', async function () {
         }
     });
 
-    // Initial state
     updateStepStates();
 });

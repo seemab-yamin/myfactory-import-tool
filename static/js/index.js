@@ -80,39 +80,6 @@ async function uploadFile() {
   }
 }
 
-// ===== Refresh Mappings Dropdown =====
-async function refreshMappingsDropdown() {
-  try {
-    const response = await fetch('/api/mappings-list');
-    if (!response.ok) throw new Error('Failed to fetch mappings');
-    const data = await response.json();
-    const mappings = data.mappings || [];
-
-    const select = document.getElementById('supplierInput');
-    const currentValue = select.value;
-
-    // Keep the "New Supplier" option
-    const newOption = select.querySelector('option[value="__new__"]');
-    select.innerHTML = '';
-    select.appendChild(newOption);
-
-    // Add existing mappings
-    for (const m of mappings) {
-      const opt = document.createElement('option');
-      opt.value = m;
-      opt.textContent = m;
-      select.appendChild(opt);
-    }
-
-    // Restore selection if it still exists
-    if (currentValue && mappings.includes(currentValue)) {
-      select.value = currentValue;
-    }
-  } catch (e) {
-    console.warn('Failed to refresh mappings dropdown:', e);
-  }
-}
-
 // ===== Clear Result =====
 function clearResult() {
   document.getElementById('result').innerHTML = '<p class="text-muted">Ready to import...</p>';

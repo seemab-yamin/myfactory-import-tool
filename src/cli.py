@@ -205,7 +205,7 @@ def cli_list_mappings(args):
         else:
             print("\n⚠️ No mappings found for this supplier.")
     else:
-        suppliers = mapper.get_all_mappings()
+        suppliers = mapper.get_all_suppliers()
         print(f"\n📋 All suppliers with mappings:")
         print("=" * 30)
         for s in suppliers:

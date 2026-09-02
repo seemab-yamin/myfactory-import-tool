@@ -42,11 +42,6 @@ class Supplier(Base):
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
 
-    # ✅ Relationship to mappings (back_populates)
-    mappings: Mapped[List["MappingConfig"]] = relationship(
-        "MappingConfig", back_populates="supplier", cascade="all, delete-orphan"
-    )
-
     def __repr__(self) -> str:
         return f"<Supplier(id={self.id}, name={self.name})>"
 
@@ -148,12 +143,6 @@ class MappingConfig(Base):
     supplier_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("suppliers.id"), nullable=False
     )
-
-    # ✅ Relationship back to Supplier
-    supplier_name: Mapped["Supplier"] = relationship(
-        "Supplier", back_populates="mappings"
-    )
-
     source_field: Mapped[str] = mapped_column(String(100), nullable=False)
     target_field_id: Mapped[int] = mapped_column(
         Integer, ForeignKey("target_fields.id"), nullable=True

@@ -6,7 +6,7 @@ import pandas as pd
 
 from src.db import local_session
 from src.logger import get_logger
-from src.models import MappingConfig
+from src.models import MappingConfig, Supplier
 
 logger = get_logger(__name__)
 
@@ -19,7 +19,7 @@ class FieldMapper:
         mapper = FieldMapper()
 
         # Get mappings
-        mappings = mapper.get_mappings("supplier_a")
+        mappings = mapper.get_mappings(1)
 
         # Apply mapping
         df_mapped = mapper.apply_mapping(df, mappings)
@@ -27,35 +27,55 @@ class FieldMapper:
 
     def __init__(self):
         self._cache: Dict[str, Dict[str, str]] = {}
+        self._supplier_cache: Dict[str, Optional[int]] = {}
 
     # ========== CRUD Operations ==========
-
-    def get_mappings(
-        self, mapping_name: str, active_only: bool = True
-    ) -> Dict[str, str]:
+    def get_mappings(self, supplier_id: int, active_only: bool = True):
         """
-        Get all mappings for a supplier.
+        Get all mappings for a supplier with full details.
 
         Args:
-            mapping_name: Name of the mapping
+            supplier_id: ID of the supplier
             active_only: Only return active mappings
 
         Returns:
-            Dictionary mapping source_field -> target_field
+            List of dictionaries with keys:
+                - source_field: str
+                - target_field: str (field name)
+                - target_field_id: int
+                - is_mandatory: bool
+                - is_active: bool
+                - prepopulated_value: str or None
         """
 
         # Check cache first
-        cache_key = f"{mapping_name}_{active_only}"
+        cache_key = f"{supplier_id}_{active_only}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
         with local_session() as session:
             query = session.query(MappingConfig).filter(
-                MappingConfig.supplier_name == mapping_name
+                MappingConfig.supplier_id == supplier_id
             )
             if active_only:
                 query = query.filter(MappingConfig.is_active == True)
-            mappings = [m.to_dict() for m in query.all()]
+
+            # ✅ Build list of dicts with all fields
+            mappings = []
+            for m in query.all():
+                mappings.append(
+                    {
+                        "source_field": m.source_field,
+                        "target_field": (
+                            m.target_field.field_name if m.target_field else None
+                        ),
+                        "target_field_id": m.target_field_id,
+                        "is_mandatory": m.is_mandatory,
+                        "is_active": m.is_active,
+                        "prepopulated_value": m.prepopulated_value,
+                    }
+                )
+
             self._cache[cache_key] = mappings
             return mappings
 
@@ -63,35 +83,19 @@ class FieldMapper:
         """Check if a supplier has any mappings (lightweight with LIMIT 1)."""
         with local_session() as session:
             exists = (
-                session.query(MappingConfig.id)
-                .filter(MappingConfig.supplier_name == mapping_name)
+                session.query(Supplier.id)
+                .filter(Supplier.id == mapping_name)
                 .limit(1)
                 .first()
                 is not None
             )
             return exists
 
-    def get_mapping_by_source(
-        self, supplier_name: str, source_field: str
-    ) -> Optional[str]:
-        """
-        Get target field for a specific source field.
-
-        Args:
-            supplier_name: Name of the supplier
-            source_field: Source field name
-
-        Returns:
-            Target field name or None if not found
-        """
-        mappings = self.get_mappings(supplier_name)
-        return mappings.get(source_field)
-
     def save_mapping(
         self,
-        supplier_name: str,
+        supplier_name: str,  # ✅ Now accepts name (string)
         source_field: str,
-        target_field_id: id,
+        target_field_id: int,
         is_active: bool = True,
         is_mandatory: bool = False,
         prepopulated_value: Optional[str] = None,
@@ -100,7 +104,7 @@ class FieldMapper:
         Save a single mapping.
 
         Args:
-            supplier_name: Name of the supplier
+            supplier_name: Name of the supplier (will be resolved to ID)
             source_field: Source field name (from CSV)
             target_field_id: ID of the target field (database column)
             is_active: Whether this mapping is active
@@ -111,12 +115,15 @@ class FieldMapper:
             Created/updated MappingConfig instance
         """
 
+        # ✅ Resolve supplier name to ID (using cached helper)
+        supplier_id = self._get_or_create_supplier(supplier_name)
+
         with local_session() as session:
-            # Check if mapping exists
+            # ✅ Use supplier_id in the filter
             existing = (
                 session.query(MappingConfig)
                 .filter(
-                    MappingConfig.supplier_name == supplier_name,
+                    MappingConfig.supplier_id == supplier_id,
                     MappingConfig.target_field_id == target_field_id,
                 )
                 .first()
@@ -132,7 +139,7 @@ class FieldMapper:
                 logger.info(f"Updated mapping: {source_field} -> {target_field_id}")
             else:
                 mapping = MappingConfig(
-                    supplier_name=supplier_name,
+                    supplier_id=supplier_id,  # ✅ Use the resolved ID
                     source_field=source_field,
                     target_field_id=target_field_id,
                     is_active=is_active,
@@ -144,48 +151,54 @@ class FieldMapper:
 
             session.commit()
             self._cache.clear()
-            return mapping
+            self._supplier_cache.clear()
+            print(
+                f"TODO: save_mapping({supplier_name}, {source_field}, {target_field_id}) -> {mapping}"
+            )
+            return supplier_id, mapping
 
-    def delete_mappings(self, supplier_name: str) -> int:
+    def delete_mappings(self, supplier_id: int) -> int:
         """
         Delete all mappings for a supplier.
 
         Args:
-            supplier_name: Name of the supplier
+            supplier_id: ID of the supplier
 
         Returns:
             Number of mappings deleted
         """
+
         with local_session() as session:
             deleted = (
                 session.query(MappingConfig)
-                .filter(MappingConfig.supplier_name == supplier_name)
+                .filter(MappingConfig.supplier_id == supplier_id)  # ✅ Use supplier_id
                 .delete()
             )
             session.commit()
 
-            # Clear cache
             self._cache.clear()
+            self._supplier_cache.clear()
 
-            logger.info(f"Deleted {deleted} mappings for supplier '{supplier_name}'")
+            logger.info(f"Deleted {deleted} mappings for supplier '{supplier_id}'")
             return deleted
 
-    def delete_mapping(self, supplier_name: str, source_field: str) -> bool:
+    def delete_mapping(self, supplier_id: int, source_field: str) -> bool:
         """
         Delete a specific mapping.
 
         Args:
-            supplier_name: Name of the supplier
+            supplier_id: ID of the supplier
             source_field: Source field to delete
 
         Returns:
             True if deleted, False if not found
         """
+
         with local_session() as session:
             mapping = (
                 session.query(MappingConfig)
                 .filter(
-                    MappingConfig.supplier_name == supplier_name,
+                    MappingConfig.supplier_id == supplier_id,
                     MappingConfig.source_field == source_field,
                 )
                 .first()
@@ -195,50 +208,22 @@ class FieldMapper:
                 session.delete(mapping)
                 session.commit()
                 self._cache.clear()
-                logger.info(f"Deleted mapping: {source_field} for '{supplier_name}'")
+                self._supplier_cache.clear()
+                logger.info(f"Deleted mapping: {source_field} for '{supplier_id}'")
                 return True
 
-            logger.warning(f"Mapping not found: {source_field} for '{supplier_name}'")
+            logger.warning(f"Mapping not found: {source_field} for '{supplier_id}'")
             return False
 
-    def toggle_mapping(self, supplier_name: str, source_field: str) -> bool:
-        """
-        Toggle active status of a mapping.
-
-        Args:
-            supplier_name: Name of the supplier
-            source_field: Source field to toggle
-
-        Returns:
-            New active status
-        """
-        with local_session() as session:
-            mapping = (
-                session.query(MappingConfig)
-                .filter(
-                    MappingConfig.supplier_name == supplier_name,
-                    MappingConfig.source_field == source_field,
-                )
-                .first()
-            )
-
-            if mapping:
-                mapping.is_active = not mapping.is_active
-                session.commit()
-                self._cache.clear()
-                logger.info(
-                    f"Toggled mapping: {source_field} -> active={mapping.is_active}"
-                )
-                return mapping.is_active
-
-            logger.warning(f"Mapping not found: {source_field} for '{supplier_name}'")
-            return False
-
-    def get_all_mappings(self) -> List[str]:
+    def get_all_suppliers(self) -> List[str]:
         """Get list of all supplier names with mappings."""
         with local_session() as session:
-            suppliers = session.query(MappingConfig.supplier_name).distinct().all()
-            return [s[0] for s in suppliers]
+            # fetch supplier id and name from Supplier table, ordered by name
+            suppliers = (
+                session.query(Supplier.id, Supplier.name).order_by(Supplier.name).all()
+            )
+            suppliers = [(s.id, s.name) for s in suppliers]  # Convert to list of tuples
+            return suppliers  # Return list of tuples (id, name) for better clarity
 
     # ========== Mapping Application ==========
 
@@ -405,20 +390,37 @@ class FieldMapper:
     def clear_cache(self) -> None:
         """Clear the mapping cache."""
         self._cache.clear()
+        self._supplier_cache.clear()
         logger.debug("Mapping cache cleared")
 
-    def get_inverse_mapping(self, supplier_name: str) -> Dict[str, str]:
+    def get_inverse_mapping(self, supplier_id: int) -> Dict[str, Dict[str, Any]]:
         """
-        Get inverse mapping (target_field -> source_field).
+        Get inverse mapping: target_field -> details dict.
 
         Args:
-            supplier_name: Name of the supplier
+            supplier_id: ID of the supplier
 
         Returns:
-            Dictionary mapping target_field -> source_field
+            Dictionary mapping target_field -> {
+                source_field: str,
+                is_mandatory: bool,
+                is_active: bool,
+                prepopulated_value: str or None
+            }
         """
-        mappings = self.get_mappings(supplier_name)
-        return {v: k for k, v in mappings.items()}
+
+        mappings = self.get_mappings(supplier_id, active_only=False)
+        result = {}
+        for m in mappings:
+            target = m.get("target_field")
+            if target:
+                result[target] = {
+                    "source_field": m.get("source_field"),
+                    "is_mandatory": m.get("is_mandatory", False),
+                    "is_active": m.get("is_active", True),
+                    "prepopulated_value": m.get("prepopulated_value"),
+                }
+        return result
 
     def validate_mapping(
         self, df: pd.DataFrame, mapping: Dict[str, str]
@@ -442,6 +444,77 @@ class FieldMapper:
 
         return is_valid, missing_columns, mapped_columns
 
+    # ========== New Methods (for backward compatibility) ==========
+
+    def get_mappings_with_details(
+        self, supplier_id: int, active_only: bool = True
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Get all mappings for a supplier with full details.
+
+        Args:
+            supplier_id: ID of the supplier
+            active_only: Only return active mappings
+
+        Returns:
+            Dictionary mapping target_field -> details
+        """
+
+        cache_key = f"details_{supplier_id}_{active_only}"
+        if cache_key in self._cache:
+            return self._cache[cache_key]
+
+        with local_session() as session:
+            query = session.query(MappingConfig).filter(
+                MappingConfig.supplier_id == supplier_id
+            )
+
+            if active_only:
+                query = query.filter(MappingConfig.is_active == True)
+
+            mappings = query.all()
+
+            result = {}
+            for m in mappings:
+                target_field_name = (
+                    m.target_field.field_name if m.target_field else None
+                )
+                result[target_field_name] = {
+                    "source_field": m.source_field,
+                    "is_mandatory": m.is_mandatory,
+                    "is_active": m.is_active,
+                    "prepopulated_value": m.prepopulated_value,
+                }
+
+            self._cache[cache_key] = result
+            return result
+
+    # ========== Helper Methods ==========
+
+    def _get_supplier_id(self, supplier_name: str) -> Optional[int]:
+        """Get supplier ID from name (with caching)."""
+        if supplier_name in self._supplier_cache:
+            return self._supplier_cache[supplier_name]
+        with local_session() as session:
+            supplier = (
+                session.query(Supplier).filter(Supplier.name == supplier_name).first()
+            )
+            supplier_id = supplier.id if supplier else None
+            self._supplier_cache[supplier_name] = supplier_id
+            return supplier_id
+
+    def _get_or_create_supplier(self, supplier_name: str) -> int:
+        """Get supplier ID, or create a new supplier if it doesn't exist."""
+        supplier_id = self._get_supplier_id(supplier_name)
+        if supplier_id is not None:
+            return supplier_id
+        with local_session() as session:
+            supplier = Supplier(name=supplier_name, source_fields=[])
+            session.add(supplier)
+            session.commit()
+            self._supplier_cache[supplier_name] = supplier.id
+            return supplier.id
+
 
 # ========== Singleton Accessor ==========
 
@@ -454,43 +527,3 @@ def get_mapper() -> FieldMapper:
     if _mapper is None:
         _mapper = FieldMapper()
     return _mapper
-
-
-def get_mappings_with_details(
-    self, supplier_name: str, active_only: bool = True
-) -> Dict[str, Dict[str, Any]]:
-    """
-    Get all mappings for a supplier with full details.
-
-    Args:
-        supplier_name: Name of the supplier
-        active_only: Only return active mappings
-
-    Returns:
-        Dictionary mapping target_field
-    """
-
-    cache_key = f"details_{supplier_name}_{active_only}"
-    if cache_key in self._cache:
-        return self._cache[cache_key]
-
-    with local_session() as session:
-        query = session.query(MappingConfig).filter(
-            MappingConfig.supplier_name == supplier_name
-        )
-
-        if active_only:
-            query = query.filter(MappingConfig.is_active == True)
-
-        mappings = query.all()
-
-        result = {}
-        for m in mappings:
-            result[m.target_field] = {
-                "source_field": m.source_field,
-                "is_mandatory": m.is_mandatory,
-                "is_active": m.is_active,
-            }
-
-        self._cache[cache_key] = result
-        return result
