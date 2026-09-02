@@ -13,9 +13,14 @@
                     <strong>{{ supplier_name or 'Supplier #' + supplier_id|string }}</strong>
                 </span>
             </div>
-            <span class="badge bg-primary" id="detailCount">
-                {{ supplier_mappings|length }} mapping{{ 's' if supplier_mappings|length != 1 else '' }}
-            </span>
+            <div class="d-flex gap-2">
+                <span class="badge bg-primary" id="detailCount">
+                    {{ supplier_mappings|length }} mapping{{ 's' if supplier_mappings|length != 1 else '' }}
+                </span>
+                <button class="btn btn-sm btn-outline-danger" onclick="deleteSupplier({{ supplier_id }}, '{{ supplier_name or supplier_id }}')">
+                    <i class="bi bi-trash"></i> Delete Supplier
+                </button>
+            </div>
         </div>
         <div class="card-body">
             <div id="detailContent">
@@ -66,8 +71,88 @@
         </div>
     </div>
 </div>
-{% endblock %}
+
+<!-- Toast Container -->
+<div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
 
 {% block scripts %}
-    {# No JavaScript needed — all data is rendered server-side! #}
+<script>
+// ===== Delete Supplier =====
+async function deleteSupplier(supplierId, supplierName) {
+    // ✅ Show confirmation dialog
+    const confirmed = confirm(
+        `⚠️ Are you sure you want to delete supplier "${supplierName}" and all associated mappings?\n\nThis action cannot be undone!`
+    );
+    
+    if (!confirmed) return;
+    
+    try {
+        const response = await fetch(`/api/suppliers/${supplierId}`, {
+            method: 'DELETE',
+        });
+        
+        if (!response.ok) {
+            const error = await response.json();
+            throw new Error(error.detail || 'Failed to delete supplier');
+        }
+        
+        // ✅ Show success toast
+        showToast('Success', `Supplier "${supplierName}" deleted successfully`, 'success');
+        
+        // ✅ Redirect to mappings list
+        setTimeout(() => {
+            window.location.href = '/mappings-list';
+        }, 1500);
+        
+    } catch (e) {
+        console.error('Delete error:', e);
+        showToast('Error', `Failed to delete supplier: ${e.message}`, 'danger');
+    }
+}
+
+// ===== Toast Notification =====
+function showToast(title, message, type = 'success') {
+    const colors = {
+        success: 'bg-success',
+        danger: 'bg-danger',
+        warning: 'bg-warning',
+        info: 'bg-info'
+    };
+    
+    const container = document.querySelector('.toast-container') || (() => {
+        const el = document.createElement('div');
+        el.className = 'toast-container position-fixed bottom-0 end-0 p-3';
+        document.body.appendChild(el);
+        return el;
+    })();
+    
+    const toast = document.createElement('div');
+    toast.className = `toast align-items-center text-white border-0 ${colors[type] || colors.info}`;
+    toast.setAttribute('role', 'alert');
+    toast.setAttribute('aria-live', 'assertive');
+    toast.setAttribute('aria-atomic', 'true');
+    toast.innerHTML = `
+        <div class="d-flex">
+            <div class="toast-body"><strong>${title}</strong> — ${message}</div>
+            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
+        </div>
+    `;
+    container.appendChild(toast);
+    
+    // Use Bootstrap's Toast if available, otherwise fallback
+    if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
+        const bsToast = new bootstrap.Toast(toast, { delay: 3000 });
+        bsToast.show();
+    } else {
+        // Fallback: auto-remove after 3 seconds
+        toast.style.display = 'block';
+        setTimeout(() => {
+            toast.remove();
+        }, 3000);
+    }
+    
+    toast.addEventListener('hidden.bs.toast', () => toast.remove());
+}
+</script>
+{% endblock %}
 {% endblock %}

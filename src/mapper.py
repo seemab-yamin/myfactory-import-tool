@@ -157,63 +157,45 @@ class FieldMapper:
             )
             return supplier_id, mapping
 
-    def delete_mappings(self, supplier_id: int) -> int:
+    def delete_supplier(self, supplier_id: int) -> bool:
         """
-        Delete all mappings for a supplier.
+        Delete a supplier and all its associated mappings.
 
         Args:
-            supplier_id: ID of the supplier
+            supplier_id: ID of the supplier to delete
 
         Returns:
-            Number of mappings deleted
+            True if deleted, False if supplier not found
         """
 
         with local_session() as session:
-            deleted = (
+            # Check if supplier exists
+            supplier = (
+                session.query(Supplier).filter(Supplier.id == supplier_id).first()
+            )
+            if not supplier:
+                logger.warning(f"Supplier with ID {supplier_id} not found")
+                return False
+
+            # ✅ Delete all mappings for this supplier first
+            deleted_mappings = (
                 session.query(MappingConfig)
-                .filter(MappingConfig.supplier_id == supplier_id)  # ✅ Use supplier_id
+                .filter(MappingConfig.supplier_id == supplier_id)
                 .delete()
             )
+
+            # ✅ Delete the supplier
+            session.delete(supplier)
             session.commit()
 
+            # Clear caches
             self._cache.clear()
             self._supplier_cache.clear()
 
-            logger.info(f"Deleted {deleted} mappings for supplier '{supplier_id}'")
-            return deleted
-
-    def delete_mapping(self, supplier_id: int, source_field: str) -> bool:
-        """
-        Delete a specific mapping.
-
-        Args:
-            supplier_id: ID of the supplier
-            source_field: Source field to delete
-
-        Returns:
-            True if deleted, False if not found
-        """
-
-        with local_session() as session:
-            mapping = (
-                session.query(MappingConfig)
-                .filter(
-                    MappingConfig.supplier_id == supplier_id,
-                    MappingConfig.source_field == source_field,
-                )
-                .first()
+            logger.info(
+                f"Deleted supplier ID {supplier_id} with {deleted_mappings} mappings"
             )
-
-            if mapping:
-                session.delete(mapping)
-                session.commit()
-                self._cache.clear()
-                self._supplier_cache.clear()
-                logger.info(f"Deleted mapping: {source_field} for '{supplier_id}'")
-                return True
-
-            logger.warning(f"Mapping not found: {source_field} for '{supplier_id}'")
-            return False
+            return True
 
     def get_all_suppliers(self) -> List[str]:
         """Get list of all supplier names with mappings."""
