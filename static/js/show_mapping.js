@@ -149,7 +149,7 @@ function renderMappingUI() {
                 <td><i class="bi bi-arrow-right text-primary"></i></td>
                 <td>
                     <select class="form-select form-select-sm source-select" data-target-id="${targetId}" data-target-name="${targetName}">
-                        <option value="">— ignore —</option>
+                        <option value="None">None</option>
                         ${sourceFields.map(sf => `
                             <option value="${sf}" ${hasSource === sf ? 'selected' : ''}>
                                 ${sf}
@@ -204,7 +204,7 @@ function renderMappingUI() {
 // ============================================================
 
 function attachEventListeners() {
-// Source select changes
+    // Source select changes
     document.querySelectorAll('.source-select').forEach(select => {
         select.removeEventListener('change', onSourceChange);
         select.addEventListener('change', onSourceChange);
@@ -300,28 +300,40 @@ async function saveMappings(supplierId) {
         return;
     }
 
-    // Step 3: Separate updates and deletions
+    // Step 3: Validate mandatory fields in the current state
+    const mandatoryErrors = validateMandatoryFields(currentState);
+    if (mandatoryErrors.length > 0) {
+        highlightErrorRows(mandatoryErrors);
+        renderValidationErrors(statusDiv, mandatoryErrors);
+        showToast('Validation Error', `${mandatoryErrors.length} mandatory field(s) missing values.`, 'danger');
+        scrollToFirstError();
+        return;
+    }
+
+    // Step 4: Separate updates and deletions
     const toUpdate = changes.filter(c => !c.was_removed && (c.source_field || c.prepopulated_value));
     const toDelete = changes.filter(c => c.was_removed);
 
     // For prepopulated-only mappings, set unique source_field
     toUpdate.forEach(c => {
         if ((!c.source_field || c.source_field.trim() === '') && c.prepopulated_value) {
-            c.source_field = `__prepopulated__${c.target_name}`;
+            c.source_field = `None`;
         }
     });
 
-    // Step 4: Validate
-    const errors = validateMappings(toUpdate);
-    if (errors.length > 0) {
-        highlightErrorRows(errors);
-        renderValidationErrors(statusDiv, errors);
-        showToast('Validation Error', `${errors.length} error(s) found.`, 'danger');
+    // Step 5: Validate updates (duplicates, etc.)
+    const updateErrors = validateMappings(toUpdate);
+    if (updateErrors.length > 0) {
+        highlightErrorRows(updateErrors);
+        renderValidationErrors(statusDiv, updateErrors);
+        showToast('Validation Error', `${updateErrors.length} error(s) found.`, 'danger');
         scrollToFirstError();
         return;
     }
 
+    // ✅ At this point, all mandatory fields are valid, and we have real changes to apply.
     if (toUpdate.length === 0 && toDelete.length === 0) {
+        // This should not happen now, but keep as safety
         statusDiv.innerHTML = '<span class="text-warning">⚠️ No valid mappings to save.</span>';
         showToast('Warning', 'No valid mappings to save.', 'warning');
         return;
@@ -334,16 +346,14 @@ async function saveMappings(supplierId) {
 
     const supplierName = document.getElementById('detailTitle').textContent.trim();
 
-    // Step 5: Save via API
+    // Step 6: Save via API
     const results = await saveMappingsWithAPI(supplierName, toUpdate, toDelete, {
         onSuccess: (res) => {
             hasChanges = false;
             updateSaveButton();
             renderSaveResults(statusDiv, res);
             showToast('Success', `All ${res.successCount} changes saved successfully!`, 'success');
-            // Update initial state to current
-            initialMappings = JSON.parse(JSON.stringify(currentState));
-            setTimeout(() => location.reload(), 1500);
+            window.location.reload();
         },
         onError: (res) => {
             renderSaveResults(statusDiv, res);

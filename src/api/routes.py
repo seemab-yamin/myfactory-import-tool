@@ -295,6 +295,42 @@ async def api_save_mapping(
     }
 
 
+@router.delete("/api/mappings/{supplier_name}/{source_field}")
+async def api_delete_mapping(
+    supplier_name: str,
+    source_field: str,
+):
+    """Delete a specific mapping for a supplier by source field."""
+    if not ensure_configured():
+        raise HTTPException(
+            status_code=400, detail="Database not configured. Run setup first."
+        )
+
+    mapper = get_mapper()
+
+    # Resolve supplier name to ID
+    supplier_id = mapper._get_supplier_id(supplier_name)
+    if supplier_id is None:
+        raise HTTPException(
+            status_code=404, detail=f"Supplier '{supplier_name}' not found"
+        )
+
+    # Delete the mapping
+    deleted = mapper.delete_mapping(supplier_id, source_field)
+    if not deleted:
+        raise HTTPException(
+            status_code=404,
+            detail=f"Mapping with source field '{source_field}' not found for supplier '{supplier_name}'",
+        )
+
+    return {
+        "status": "deleted",
+        "supplier_name": supplier_name,
+        "source_field": source_field,
+        "message": f"Mapping '{source_field}' deleted successfully",
+    }
+
+
 @router.delete("/api/suppliers/{supplier_id:int}")
 async def api_delete_supplier(supplier_id: int):
     """Delete a supplier and all associated mappings."""

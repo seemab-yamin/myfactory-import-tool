@@ -43,48 +43,7 @@
                                 </tr>
                             </thead>
                             <tbody id="mappingTableBody">
-                                {% set sorted_targets = target_fields|sort(attribute='field_name') %}
-                                {% for target in sorted_targets %}
-                                {% set target_name = target.field_name %}
-                                {% set target_id = target.id %}
-                                {% set is_nullable = target.is_nullable %}
-                                {% set mapping = supplier_mappings.get(target_name, {}) %}
-                                <tr>
-                                    <td>{{ loop.index }}</td>
-                                    <td>
-                                        <strong>{{ target_name }}</strong>
-                                        {% if is_nullable == false %}
-                                            <span class="text-danger">*</span>
-                                        {% endif %}
-                                        <br><span class="text-muted small">{{ target.data_type or '' }}</span>
-                                        <br><span class="text-muted small">ID: {{ target_id }}</span>
-                                    </td>
-                                    <td><i class="bi bi-arrow-right text-primary"></i></td>
-                                    <td>
-                                        <select class="form-select form-select-sm source-select" data-target-id="{{ target_id }}" data-target-name="{{ target_name }}">
-                                            <option value="None">None</option>
-                                            {% for source_field in source_fields %}
-                                                <option value="{{ source_field }}" 
-                                                    {% if mapping.get('source_field') == source_field %}selected{% endif %}>
-                                                    {{ source_field }}
-                                                </option>
-                                            {% endfor %}
-                                        </select>
-                                    </td>
-                                    <td class="text-center">
-                                        <input type="checkbox" class="form-check-input mandatory-check" 
-                                               data-target-id="{{ target_id }}"
-                                               {% if mapping.get('is_mandatory') %}checked{% endif %}
-                                               {% if is_nullable == false %}disabled{% endif %}>
-                                    </td>
-                                    <td>
-                                        <input type="text" class="form-control form-control-sm prepopulated-value" 
-                                               data-target-id="{{ target_id }}"
-                                               value="{{ mapping.get('prepopulated_value', '') }}"
-                                               placeholder="Pre Populated value...">
-                                    </td>
-                                </tr>
-                                {% endfor %}
+                                <!-- Dynamically populated by JavaScript -->
                             </tbody>
                         </table>
                     </div>
@@ -123,166 +82,18 @@
 <!-- Toast Container -->
 <div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
 
+<!-- ✅ Pass data to JavaScript via data attributes -->
+<div id="page-data" 
+     data-supplier-id="{{ supplier_id }}"
+     data-supplier-name="{{ supplier_name }}"
+     data-target-fields="{{ target_fields|tojson|forceescape }}"
+     data-source-fields="{{ source_fields|tojson|forceescape }}"
+     data-supplier-mappings="{{ supplier_mappings|tojson|forceescape }}"
+     style="display:none;">
+</div>
+
 {% block scripts %}
-<script>
-// ===== State =====
-let currentMappings = {};
-let mandatoryFields = [];
-
-// ===== Save Mappings =====
-async function saveMappings(supplierId) {
-    const selects = document.querySelectorAll('.source-select');
-    const mandatoryChecks = document.querySelectorAll('.mandatory-check');
-    const prepopulatedInputs = document.querySelectorAll('.prepopulated-value');
-    const saveBtn = document.getElementById('saveBtn');
-    const statusDiv = document.getElementById('saveStatus');
-    
-    const mappings = [];
-    
-    selects.forEach(select => {
-        const targetId = parseInt(select.dataset.targetId);
-        const targetName = select.dataset.targetName;
-        const sourceField = select.value === 'None' ? null : select.value;
-        
-        const mandatoryCheck = document.querySelector(`.mandatory-check[data-target-id="${targetId}"]`);
-        const prepopulatedInput = document.querySelector(`.prepopulated-value[data-target-id="${targetId}"]`);
-        
-        mappings.push({
-            target_id: targetId,
-            target_name: targetName,
-            source_field: sourceField,
-            is_mandatory: mandatoryCheck ? mandatoryCheck.checked : false,
-            prepopulated_value: prepopulatedInput ? prepopulatedInput.value.trim() : null
-        });
-    });
-    
-    saveBtn.disabled = true;
-    statusDiv.innerHTML = '<span class="text-info">⏳ Saving mappings...</span>';
-    
-    try {
-        const response = await fetch(`/api/mappings/${supplierId}`, {
-            method: 'PUT',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ mappings: mappings })
-        });
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to save mappings');
-        }
-        
-        statusDiv.innerHTML = '<span class="text-success">✅ Mappings saved successfully!</span>';
-        showToast('Success', 'Mappings saved successfully!', 'success');
-        setTimeout(() => location.reload(), 1500);
-        
-    } catch (e) {
-        console.error('Save error:', e);
-        statusDiv.innerHTML = `<span class="text-danger">❌ ${e.message}</span>`;
-        showToast('Error', `Failed to save mappings: ${e.message}`, 'danger');
-        saveBtn.disabled = false;
-    }
-}
-
-// ===== Update Mapping Status =====
-function updateMappingStatus() {
-    // This function is used to update the save button state
-    // You can add logic here to enable/disable save based on validation
-}
-
-// ===== Delete Supplier =====
-async function deleteSupplier(supplierId, supplierName) {
-    const confirmed = confirm(
-        `⚠️ Are you sure you want to delete supplier "${supplierName}" and all associated mappings?\n\nThis action cannot be undone!`
-    );
-    
-    if (!confirmed) return;
-    
-    try {
-        const response = await fetch(`/api/suppliers/${supplierId}`, {
-            method: 'DELETE',
-        });
-        
-        if (!response.ok) {
-            const error = await response.json();
-            throw new Error(error.detail || 'Failed to delete supplier');
-        }
-        
-        showToast('Success', `Supplier "${supplierName}" deleted successfully`, 'success');
-        setTimeout(() => {
-            window.location.href = '/mappings-list';
-        }, 1500);
-        
-    } catch (e) {
-        console.error('Delete error:', e);
-        showToast('Error', `Failed to delete supplier: ${e.message}`, 'danger');
-    }
-}
-
-// ===== Toast Notification =====
-function showToast(title, message, type = 'success') {
-    const colors = {
-        success: 'bg-success',
-        danger: 'bg-danger',
-        warning: 'bg-warning',
-        info: 'bg-info'
-    };
-    
-    const container = document.querySelector('.toast-container') || (() => {
-        const el = document.createElement('div');
-        el.className = 'toast-container position-fixed bottom-0 end-0 p-3';
-        document.body.appendChild(el);
-        return el;
-    })();
-    
-    const toast = document.createElement('div');
-    toast.className = `toast align-items-center text-white border-0 ${colors[type] || colors.info}`;
-    toast.setAttribute('role', 'alert');
-    toast.innerHTML = `
-        <div class="d-flex">
-            <div class="toast-body"><strong>${title}</strong> — ${message}</div>
-            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast"></button>
-        </div>
-    `;
-    container.appendChild(toast);
-    
-    if (typeof bootstrap !== 'undefined' && bootstrap.Toast) {
-        const bsToast = new bootstrap.Toast(toast, { delay: 3000 });
-        bsToast.show();
-    } else {
-        setTimeout(() => toast.remove(), 3000);
-    }
-}
-
-// ===== Init =====
-document.addEventListener('DOMContentLoaded', function() {
-    // Initialize any event listeners if needed
-    const saveBtn = document.getElementById('saveBtn');
-    if (saveBtn) {
-        saveBtn.disabled = false;
-    }
-    
-    // Update mandatory summary
-    const mandatoryChecks = document.querySelectorAll('.mandatory-check:checked');
-    const mandatoryList = document.getElementById('mandatoryList');
-    const mandatorySummary = document.getElementById('mandatorySummary');
-    
-    if (mandatoryChecks.length > 0) {
-        const names = [];
-        mandatoryChecks.forEach(cb => {
-            const row = cb.closest('tr');
-            if (row) {
-                const nameEl = row.querySelector('td strong');
-                if (nameEl) names.push(nameEl.textContent);
-            }
-        });
-        if (names.length > 0) {
-            mandatorySummary.style.display = 'block';
-            mandatoryList.innerHTML = names.map(n => 
-                `<span class="badge bg-danger me-1">${n}</span>`
-            ).join('');
-        }
-    }
-});
-</script>
+<script src="{{ url_for('static', path='js/mapping_utils.js') }}"></script>
+<script src="{{ url_for('static', path='js/show_mapping.js') }}"></script>
 {% endblock %}
 {% endblock %}
