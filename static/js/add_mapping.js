@@ -1,11 +1,12 @@
 // ===== State =====
 let parsedColumns = [];
-let targetColumns = [];           // Full schema: [{id, name, nullable, type, ...}]
-let mandatoryFields = [];         // Dynamic: fields where nullable === false
+let targetColumns = [];
+let mandatoryFields = [];
 let currentMappings = {};
 let supplierExists = false;
 let prepopulatedValues = {};
 let allSupplierNames = [];
+let hasChanges = false;
 
 // ===== Step Unlock State =====
 let step1Complete = false;
@@ -273,7 +274,7 @@ function renderPreview(preview) {
 }
 
 // ============================================================
-// BUILD MAPPING UI
+// BUILD MAPPING UI (updated event listeners)
 // ============================================================
 function buildMappingUI(targetCols, fileCols) {
     const tbody = document.getElementById('mappingTableBody');
@@ -306,7 +307,7 @@ function buildMappingUI(targetCols, fileCols) {
                 </td>
                 <td>
                     <select class="form-select form-select-sm source-select" data-target-id="${fieldId}">
-                        <option value="">— ignore —</option>   <!-- ✅ Changed to empty string -->
+                        <option value="None">None</option>
                         ${fileCols.map(fc => `<option value="${fc}">${fc}</option>`).join('')}
                     </select>
                 </td>
@@ -324,12 +325,13 @@ function buildMappingUI(targetCols, fileCols) {
     tbody.innerHTML = html;
     step2Complete = true;
 
-    // Event listeners
+    // --- Event listeners with markDirty ---
     document.querySelectorAll('.source-select').forEach(select => {
         select.addEventListener('change', function () {
             const targetId = parseInt(this.dataset.targetId);
             const sourceColumn = this.value;
             updateMapping(targetId, sourceColumn);
+            markDirty();
         });
     });
 
@@ -337,7 +339,6 @@ function buildMappingUI(targetCols, fileCols) {
         checkbox.addEventListener('change', function () {
             const targetId = parseInt(this.dataset.targetId);
             const isChecked = this.checked;
-
             if (isChecked) {
                 if (!mandatoryFields.includes(targetId)) {
                     mandatoryFields.push(targetId);
@@ -352,10 +353,9 @@ function buildMappingUI(targetCols, fileCols) {
                     return;
                 }
             }
-
             updateValidation(targetId);
             showMandatorySummary();
-            updateMappingStatus();
+            markDirty();
         });
     });
 
@@ -363,14 +363,13 @@ function buildMappingUI(targetCols, fileCols) {
         input.addEventListener('input', function () {
             const targetId = parseInt(this.dataset.targetId);
             const sourceSelect = document.querySelector(`.source-select[data-target-id="${targetId}"]`);
-
             if (this.value.trim()) {
                 prepopulatedValues[targetId] = this.value.trim();
             } else {
                 delete prepopulatedValues[targetId];
             }
-
             updateMapping(targetId, sourceSelect ? sourceSelect.value : null);
+            markDirty();
         });
     });
 
@@ -399,7 +398,7 @@ function updateMapping(targetId, sourceColumn) {
     };
 
     updateValidation(targetId);
-    updateMappingStatus();
+    updateMappingStatus();  // will check hasChanges
 }
 
 function updateValidation(targetId) {
@@ -456,11 +455,21 @@ function updateMappingStatus() {
         return (mapping.source && mapping.source !== '') || (mapping.prepopulated && mapping.value);
     });
 
-    const canSave = mandatoryMapped && totalMapped > 0;
+    // ✅ Save button only enabled if there are changes AND mandatory fields are valid
+    const canSave = hasChanges && mandatoryMapped && totalMapped > 0;
 
     statusBadge.textContent = `${totalMapped}/${targetColumns.length} mapped (${totalMapped}/${totalRequired} required)`;
     statusBadge.className = `badge ${canSave ? 'bg-success' : 'bg-warning text-dark'}`;
     saveBtn.disabled = !canSave;
+}
+
+// ============================================================
+// MARK DIRTY
+// ============================================================
+
+function markDirty() {
+    hasChanges = true;
+    updateMappingStatus();
 }
 
 // ============================================================
@@ -472,7 +481,6 @@ async function saveMappings() {
     const statusDiv = document.getElementById('saveStatus');
     const saveBtn = document.getElementById('saveBtn');
 
-    // 1. Basic validation
     if (!supplierName) {
         showToast('Error', 'Please enter a supplier name', 'danger');
         document.getElementById('supplierName').focus();
@@ -483,69 +491,70 @@ async function saveMappings() {
         return;
     }
 
-    // 2. Collect current state from UI using the shared utility
-    const currentState = collectMappingsFromUI();
+    // Check mandatory mappings (using currentMappings)
+    const missingMandatory = mandatoryFields.filter(id => {
+        const mapping = currentMappings[id];
+        if (!mapping) return true;
+        return !((mapping.source && mapping.source !== '') || (mapping.prepopulated && mapping.value));
+    });
 
-    // 3. Validate mandatory fields
-    const mandatoryErrors = validateMandatoryFields(currentState);
-    if (mandatoryErrors.length > 0) {
-        highlightErrorRows(mandatoryErrors);
-        renderValidationErrors(statusDiv, mandatoryErrors);
-        showToast('Validation Error', `${mandatoryErrors.length} error(s) found.`, 'danger');
-        scrollToFirstError();
+    if (missingMandatory.length) {
+        const missingNames = missingMandatory.map(id => {
+            const col = targetColumns.find(c => c.target_field_id === id);
+            return col ? col.name : id;
+        });
+        showToast('Error', `Missing required fields: ${missingNames.join(', ')}`, 'danger');
         return;
     }
 
-    // 4. Build the list of mappings to save
-    const toUpdate = Object.entries(currentState)
-        .filter(([_, state]) => state.source_field || state.prepopulated_value)
-        .map(([targetName, state]) => ({
-            target_id: state.target_id,
-            target_name: targetName,
-            source_field: state.source_field || `__prepopulated__${targetName}`,
-            is_mandatory: state.is_mandatory,
-            prepopulated_value: state.prepopulated_value || ''
-        }));
-
-    if (toUpdate.length === 0) {
-        statusDiv.innerHTML = '<span class="text-warning">⚠️ No mappings to save.</span>';
-        showToast('Warning', 'No mappings to save.', 'warning');
-        return;
-    }
-
-    // 5. Validate for duplicates and other issues
-    const validationErrors = validateMappings(toUpdate);
-    if (validationErrors.length > 0) {
-        highlightErrorRows(validationErrors);
-        renderValidationErrors(statusDiv, validationErrors);
-        showToast('Validation Error', `${validationErrors.length} error(s) found.`, 'danger');
-        scrollToFirstError();
-        return;
-    }
-
-    // 6. Disable button and show spinner
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Saving...';
-    statusDiv.innerHTML = `<span class="text-info">⏳ Saving ${toUpdate.length} mapping(s)...</span>`;
+    statusDiv.innerHTML = '<span class="text-info">⏳ Saving mappings...</span>';
+
+    let supplierID = null;
 
     try {
-        // 7. Save using the shared API utility (no deletions for new supplier)
-        const results = await saveMappingsWithAPI(supplierName, toUpdate, [], {
-            onSuccess: async (res) => {
-                renderSaveResults(statusDiv, res);
-                showToast('Success', `All ${res.successCount} mappings saved successfully!`, 'success');
-                await fetchAllSuppliers();
-                setTimeout(() => {
-                    window.location.href = `/show-mapping/${encodeURIComponent(window.supplierId)}`;
-                }, 1500);
-            },
-            onError: (res) => {
-                renderSaveResults(statusDiv, res);
-                showToast('Partial Save', `${res.successCount} succeeded, ${res.failureCount} failed.`, 'warning');
-                saveBtn.disabled = false;
-                saveBtn.innerHTML = '<i class="bi bi-save"></i> Save';
+        for (const [targetId, mapping] of Object.entries(currentMappings)) {
+            let sourceField = mapping.source || '';
+            const formData = new FormData();
+            formData.append('source_field', sourceField);
+            formData.append('target_field_id', targetId);
+            formData.append('is_active', 'true');
+            formData.append('is_mandatory', mandatoryFields.includes(parseInt(targetId)) ? 'true' : 'false');
+            if (mapping.value) {
+                formData.append('prepopulated_value', mapping.value);
             }
-        });
+
+            const response = await fetch(`/api/mappings/${supplierName}`, {
+                method: 'POST',
+                body: formData
+            });
+
+            if (!response.ok) {
+                const error = await response.json();
+                throw new Error(error.detail || 'Failed to save mapping');
+            }
+
+            if (supplierID === null) {
+                const data = await response.json();
+                supplierID = data.supplier_id || data.supplier || null;
+            }
+        }
+
+        // ✅ Reset dirty state after successful save
+        hasChanges = false;
+        updateMappingStatus();
+
+        statusDiv.innerHTML = '<span class="text-success">✅ Mappings saved successfully!</span>';
+        showToast('Success', `Mappings saved for ${supplierName}`, 'success');
+        saveBtn.innerHTML = '<i class="bi bi-save"></i> Save';
+
+        await fetchAllSuppliers();
+
+        setTimeout(() => {
+            window.location.href = `/show-mapping/${encodeURIComponent(supplierID)}`;
+        }, 1500);
+
     } catch (e) {
         statusDiv.innerHTML = `<span class="text-danger">❌ ${e.message}</span>`;
         showToast('Error', e.message, 'danger');
