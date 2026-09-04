@@ -102,8 +102,7 @@ async function fetchAllSuppliers() {
         if (!response.ok) throw new Error('Failed to fetch suppliers');
         const data = await response.json();
         const suppliers = data.suppliers || [];
-        allSupplierNames = suppliers.map(s => s[1]).filter(Boolean);
-        console.log('✅ Cached supplier names:', allSupplierNames);
+        allSupplierNames = suppliers.map(s => s[1].toLowerCase()).filter(Boolean);
         return allSupplierNames;
     } catch (e) {
         console.warn('Could not fetch suppliers:', e);
@@ -115,7 +114,7 @@ async function fetchAllSuppliers() {
 function checkSupplierName() {
     const input = document.getElementById('supplierName');
     const feedback = document.getElementById('supplierNameFeedback');
-    const name = input.value.trim();
+    const name = input.value.trim().toLowerCase();
 
     if (!name) {
         input.classList.remove('is-invalid', 'is-valid');
@@ -354,7 +353,6 @@ function buildMappingUI(targetCols, fileCols) {
                 }
             }
             updateValidation(targetId);
-            showMandatorySummary();
             markDirty();
         });
     });
@@ -372,8 +370,6 @@ function buildMappingUI(targetCols, fileCols) {
             markDirty();
         });
     });
-
-    showMandatorySummary();
     updateMappingStatus();
     updateStepStates();
 }
@@ -424,23 +420,6 @@ function updateValidation(targetId) {
     }
 }
 
-function showMandatorySummary() {
-    const summaryDiv = document.getElementById('mandatorySummary');
-    const listSpan = document.getElementById('mandatoryList');
-
-    const mandatoryNames = targetColumns
-        .filter(col => mandatoryFields.includes(col.target_field_id))
-        .map(col => col.name);
-
-    if (mandatoryNames.length > 0) {
-        summaryDiv.style.display = 'block';
-        listSpan.innerHTML = mandatoryNames.map(f =>
-            `<span class="badge bg-danger me-1">${f}</span>`
-        ).join('');
-    } else {
-        summaryDiv.style.display = 'none';
-    }
-}
 
 function updateMappingStatus() {
     const statusBadge = document.getElementById('mappingStatus');
@@ -549,10 +528,9 @@ async function saveMappings() {
         showToast('Success', `Mappings saved for ${supplierName}`, 'success');
         saveBtn.innerHTML = '<i class="bi bi-save"></i> Save';
 
-        await fetchAllSuppliers();
-
+        // ✅ REDIRECT TO LISTINGS PAGE
         setTimeout(() => {
-            window.location.href = `/show-mapping/${encodeURIComponent(supplierID)}`;
+            window.location.href = '/mappings-list';
         }, 1500);
 
     } catch (e) {
