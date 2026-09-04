@@ -5,11 +5,12 @@ import logging
 import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from pathlib import Path
 from typing import Any, Dict, Optional
 
+from src.paths import BASE_DIR
+
 # Constants
-LOG_DIR = Path("logs")
+LOG_DIR = BASE_DIR / "logs"
 
 
 class JSONFormatter(logging.Formatter):

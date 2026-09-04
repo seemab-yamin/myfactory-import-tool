@@ -1,9 +1,6 @@
 """Database engine, session management, and connection handling."""
 
-import os
-import sys
 from contextlib import contextmanager
-from pathlib import Path
 from typing import Any, Dict, Generator, List, Optional
 
 from sqlalchemy import create_engine, inspect, text
@@ -12,11 +9,12 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.config_manager import get_config_manager
 from src.logger import get_logger
+from src.paths import BASE_DIR
 
 logger = get_logger(__name__)
 
 # App data directory (for local SQLite DB)
-LOCAL_DB_DIR = Path("data")
+LOCAL_DB_DIR = BASE_DIR / "data"
 LOCAL_DB_PATH = LOCAL_DB_DIR / "mappings.db"
 LOCAL_DB_URL = f"sqlite:///{LOCAL_DB_PATH}"
 
