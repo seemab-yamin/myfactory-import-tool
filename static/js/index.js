@@ -1,56 +1,57 @@
-// ===== Toggle New Supplier Input =====
+// ============================================================
+// HOME PAGE – IMPORT UI
+// ============================================================
+
 document.addEventListener('DOMContentLoaded', function () {
   const supplierSelect = document.getElementById('supplierInput');
-  const newSupplierInput = document.getElementById('newSupplierInput');
+  const fileInput = document.getElementById('fileInput');
+  const importBtn = document.getElementById('importBtn');
 
-  supplierSelect.addEventListener('change', function () {
-    if (this.value === '__new__') {
-      newSupplierInput.style.display = 'inline-block';
-      newSupplierInput.focus();
-    } else {
-      newSupplierInput.style.display = 'none';
-      newSupplierInput.value = '';
-    }
-  });
+  // ===== Enable/Disable Import Button =====
+  function updateImportButton() {
+    const hasSupplier = supplierSelect.value && supplierSelect.value !== '';
+    const hasFile = fileInput.files && fileInput.files.length > 0;
+    importBtn.disabled = !(hasSupplier && hasFile);
+  }
 
-  // Handle Enter key on new supplier input
-  newSupplierInput.addEventListener('keydown', function (e) {
-    if (e.key === 'Enter') {
-      e.preventDefault();
-      uploadFile();
-    }
-  });
+  // ===== Event Listeners =====
+  supplierSelect.addEventListener('change', updateImportButton);
+  fileInput.addEventListener('change', updateImportButton);
+
+  // Initial state
+  updateImportButton();
 });
 
 // ===== Upload File =====
 async function uploadFile() {
   const fileInput = document.getElementById('fileInput');
   const supplierSelect = document.getElementById('supplierInput');
-  const newSupplierInput = document.getElementById('newSupplierInput');
   const dryRun = document.getElementById('dryRunInput').checked;
   const resultDiv = document.getElementById('result');
+  const importBtn = document.getElementById('importBtn');
 
+  // Validate
   if (!fileInput.files.length) {
     resultDiv.innerHTML = '<div class="error">❌ Please select a file</div>';
     return;
   }
 
-  // Determine supplier name
-  let supplier = supplierSelect.value;
-  if (supplier === '__new__') {
-    supplier = newSupplierInput.value.trim();
-    if (!supplier) {
-      resultDiv.innerHTML = '<div class="error">❌ Please enter a supplier name</div>';
-      return;
-    }
+  const supplierId = supplierSelect.value;
+  if (!supplierId) {
+    resultDiv.innerHTML = '<div class="error">❌ Please select a supplier</div>';
+    return;
   }
 
+  // Build FormData
   const formData = new FormData();
   formData.append('file', fileInput.files[0]);
-  formData.append('supplier', supplier);
+  formData.append('supplier', supplierId);
   formData.append('dry_run', dryRun);
   formData.append('batch_size', 1000);
 
+  // Disable button during upload
+  importBtn.disabled = true;
+  importBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Uploading...';
   resultDiv.innerHTML = '<div class="info">⏳ Uploading...</div>';
 
   try {
@@ -62,11 +63,6 @@ async function uploadFile() {
       html += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
       resultDiv.innerHTML = html;
 
-      // If it was a new supplier, refresh dropdown
-      if (supplierSelect.value === '__new__') {
-        await refreshSuppliersDropdown();
-      }
-
       if (data.preview && data.preview.length) {
         resultDiv.innerHTML += `<h5>Preview Data:</h5><pre>${JSON.stringify(data.preview, null, 2)}</pre>`;
       }
@@ -77,6 +73,10 @@ async function uploadFile() {
     }
   } catch (e) {
     resultDiv.innerHTML = `<div class="error">❌ Network Error: ${e.message}</div>`;
+  } finally {
+    // Restore button state
+    importBtn.disabled = false;
+    importBtn.innerHTML = '<i class="bi bi-upload"></i> Upload & Import';
   }
 }
 
@@ -84,7 +84,7 @@ async function uploadFile() {
 function clearResult() {
   document.getElementById('result').innerHTML = '<p class="text-muted">Ready to import...</p>';
   document.getElementById('fileInput').value = '';
-  document.getElementById('newMappingInput').value = '';
-  document.getElementById('newMappingInput').style.display = 'none';
-  document.getElementById('mappingInput').value = 'default';
+  // Trigger change event to re-evaluate button state
+  const event = new Event('change');
+  document.getElementById('fileInput').dispatchEvent(event);
 }

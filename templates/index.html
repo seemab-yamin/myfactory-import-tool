@@ -15,6 +15,7 @@
   <div class="form-group">
     <label>Supplier:</label>
     <select id="supplierInput" class="form-select" style="width:auto; display:inline-block;">
+      <option value="">— select —</option>
       {% for id, name in suppliers %}
         <option value="{{ id }}">{{ name }}</option>
       {% endfor %}
@@ -25,7 +26,7 @@
     <input type="checkbox" id="dryRunInput" checked />
   </div>
 
-  <button onclick="uploadFile()" class="btn btn-primary">Upload & Import</button>
+  <button id="importBtn" onclick="uploadFile()" class="btn btn-primary" disabled><i class="bi bi-upload"></i> Upload & Import</button>
   <button onclick="clearResult()" class="btn btn-secondary" style="margin-left:10px;">Clear</button>
 
   <div id="result" class="result">
