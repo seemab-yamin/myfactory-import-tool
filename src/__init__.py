@@ -1,6 +1,6 @@
 """MyFactory Import Tool - Core Package."""
 
-from src.config_manager import ConfigManager
+from src.config_manager import ConfigManager, get_config_manager
 from src.importer import MyfactoryImporter
 from src.logger import (
     LOG_DIR,
@@ -18,6 +18,7 @@ from src.models import (
     Supplier,
     TargetField,
 )
+from src.paths import BASE_DIR
 from src.schema_scanner import (
     SchemaScanner,
     get_column_names,
@@ -29,6 +30,8 @@ from src.schema_scanner import (
 
 __all__ = [
     "ConfigManager",
+    "get_config_manager",
+    "BASE_DIR",
     "get_scanner",
     "get_table_schema",
     "get_columns_for_mapping",
