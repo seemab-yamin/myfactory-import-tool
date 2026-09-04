@@ -146,7 +146,6 @@ function renderMappingUI() {
                     <br><span class="text-muted small">${target.data_type || ''}</span>
                     <br><span class="text-muted small">ID: ${targetId}</span>
                 </td>
-                <td><i class="bi bi-arrow-right text-primary"></i></td>
                 <td>
                     <select class="form-select form-select-sm source-select" data-target-id="${targetId}" data-target-name="${targetName}">
                         <option value="None">None</option>
