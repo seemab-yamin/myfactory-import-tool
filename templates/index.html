@@ -11,7 +11,13 @@
   <div class="form-group">
     <label>File:</label>
     <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
+    <div id="fileInfo" class="mt-2" style="display:none;">
+      <span id="fileName" class="badge bg-info text-dark"></span>
+      <span id="fileSize" class="badge bg-secondary ms-1"></span>
+      <span id="fileStatus" class="badge bg-warning text-dark ms-1">⏳ Parsing...</span>
+    </div>
   </div>
+
   <div class="form-group">
     <label>Supplier:</label>
     <select id="supplierInput" class="form-select" style="width:auto; display:inline-block;">
@@ -21,6 +27,7 @@
       {% endfor %}
     </select>
   </div>
+
   <div class="form-group">
     <label>Dry run:</label>
     <input type="checkbox" id="dryRunInput" checked />
@@ -28,6 +35,18 @@
 
   <button id="importBtn" onclick="uploadFile()" class="btn btn-primary" disabled><i class="bi bi-upload"></i> Upload & Import</button>
   <button onclick="clearResult()" class="btn btn-secondary" style="margin-left:10px;">Clear</button>
+
+  <!-- File Preview Table -->
+  <div id="previewContainer" style="display:none; margin-top:20px;">
+    <h6>📄 File Preview (first 5 rows)</h6>
+    <div class="table-responsive">
+      <table id="previewTable" class="table table-sm table-bordered table-striped">
+        <thead id="previewHead"></thead>
+        <tbody id="previewBody"></tbody>
+      </table>
+    </div>
+    <div id="previewStats" class="text-muted small"></div>
+  </div>
 
   <div id="result" class="result">
     <p class="text-muted">Ready to import...</p>
