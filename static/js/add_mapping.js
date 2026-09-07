@@ -205,7 +205,6 @@ async function parseSampleFile() {
         const data = await response.json();
         parsedColumns = data.columns || [];
         const preview = data.preview || [];
-        const supplierId = data.supplier_id;
 
         previewDiv.style.display = 'block';
         renderPreview(preview);
@@ -216,7 +215,6 @@ async function parseSampleFile() {
         statusDiv.innerHTML = `<span class="text-success">✅ Parsed ${parsedColumns.length} columns</span>`;
         showToast('Success', `Parsed ${parsedColumns.length} columns`, 'success');
 
-        window.supplierId = supplierId;
     } catch (e) {
         statusDiv.innerHTML = `<span class="text-danger">❌ ${e.message}</span>`;
         showToast('Error', e.message, 'danger');
@@ -295,17 +293,26 @@ function buildMappingUI(targetCols, fileCols) {
         const isMandatory = col.nullable === false;
         const rowId = `row-${index}`;
         const fieldId = col.target_field_id;
+        const fieldName = col.name || col.field_name || 'Unknown';
+
+        // ✅ Store initial state with target name
+        currentMappings[fieldId] = {
+            target: fieldName,        // ← Added: store the field name
+            source: null,
+            prepopulated: false,
+            prepopulated_value: null
+        };
 
         html += `<tr id="${rowId}">
                 <td>${index + 1}</td>
                 <td>
-                    <strong>${col.name}</strong>
+                    <strong>${fieldName}</strong>
                     ${isMandatory ? '<span class="text-danger">*</span>' : ''}
                     <br><span class="text-muted small">${col.type || ''}</span>
                     <br><span class="text-muted small">ID: ${fieldId}</span>
                 </td>
                 <td>
-                    <select class="form-select form-select-sm source-select" data-target-id="${fieldId}">
+                    <select class="form-select form-select-sm source-select" data-target-id="${fieldId}" data-target-name="${fieldName}">
                         <option value="None">None</option>
                         ${fileCols.map(fc => `<option value="${fc}">${fc}</option>`).join('')}
                     </select>
@@ -370,6 +377,13 @@ function buildMappingUI(targetCols, fileCols) {
             markDirty();
         });
     });
+
+    // ✅ Store target fields globally for validation
+    window._mappingTargets = sortedTargetCols.reduce((acc, col) => {
+        acc[col.target_field_id] = col.name || col.field_name || 'Unknown';
+        return acc;
+    }, {});
+
     updateMappingStatus();
     updateStepStates();
 }
@@ -380,17 +394,21 @@ function buildMappingUI(targetCols, fileCols) {
 
 function updateMapping(targetId, sourceColumn) {
     const sourceSelect = document.querySelector(`.source-select[data-target-id="${targetId}"]`);
-    const valueInput = document.querySelector(`.prepopulated-value[data-target-id="${targetId}"]`);
+    const prepopulatedValueInput = document.querySelector(`.prepopulated-value[data-target-id="${targetId}"]`);
+
+    // ✅ Gets target name from data attribute
+    const targetName = sourceSelect ? sourceSelect.dataset.targetName : null;
 
     delete currentMappings[targetId];
 
-    const hasSource = sourceColumn && sourceColumn !== '';
-    const hasPrepopulated = valueInput && valueInput.value.trim() !== '';
+    const hasSource = sourceColumn && sourceColumn !== '' && sourceColumn !== 'None';
+    const hasPrepopulated = prepopulatedValueInput && prepopulatedValueInput.value.trim() !== '';
 
     currentMappings[targetId] = {
+        target: targetName,
         source: hasSource ? sourceColumn : null,
         prepopulated: hasPrepopulated,
-        value: hasPrepopulated ? valueInput.value.trim() : null
+        prepopulated_value: hasPrepopulated ? prepopulatedValueInput.value.trim() : null
     };
 
     updateValidation(targetId);
@@ -431,7 +449,7 @@ function updateMappingStatus() {
     const mandatoryMapped = mandatoryFields.every(id => {
         const mapping = currentMappings[id];
         if (!mapping) return false;
-        return (mapping.source && mapping.source !== '') || (mapping.prepopulated && mapping.value);
+        return (mapping.source && mapping.source !== '') || (mapping.prepopulated && mapping.prepopulated_value);
     });
 
     // ✅ Save button only enabled if there are changes AND mandatory fields are valid
@@ -452,7 +470,7 @@ function markDirty() {
 }
 
 // ============================================================
-// SAVE MAPPINGS – USING SHARED UTILITIES
+// SAVE MAPPINGS – WITH TARGET NAME
 // ============================================================
 
 async function saveMappings() {
@@ -460,6 +478,7 @@ async function saveMappings() {
     const statusDiv = document.getElementById('saveStatus');
     const saveBtn = document.getElementById('saveBtn');
 
+    // -------- VALIDATION BLOCK --------
     if (!supplierName) {
         showToast('Error', 'Please enter a supplier name', 'danger');
         document.getElementById('supplierName').focus();
@@ -470,11 +489,10 @@ async function saveMappings() {
         return;
     }
 
-    // Check mandatory mappings (using currentMappings)
     const missingMandatory = mandatoryFields.filter(id => {
         const mapping = currentMappings[id];
         if (!mapping) return true;
-        return !((mapping.source && mapping.source !== '') || (mapping.prepopulated && mapping.value));
+        return !((mapping.source && mapping.source !== '') || (mapping.prepopulated_value && mapping.prepopulated_value !== ''));
     });
 
     if (missingMandatory.length) {
@@ -486,56 +504,84 @@ async function saveMappings() {
         return;
     }
 
+    // -------- PREPARE DATA --------
+    const mappingList = [];
+
+    for (const [targetId, mapping] of Object.entries(currentMappings)) {
+        console.log(`Preparing mapping for target field ID ${targetId}:`, mapping);
+
+        const mappingItem = {
+            target_field_name: mapping.target,
+            source_field: mapping.source || '',
+            target_field_id: parseInt(targetId),
+            is_active: true,
+            is_mandatory: mandatoryFields.includes(parseInt(targetId)),
+        };
+
+        if (mapping.prepopulated_value && mapping.prepopulated_value !== '') {
+            mappingItem.prepopulated_value = mapping.prepopulated_value;
+        }
+
+        mappingList.push(mappingItem);
+    }
+
+    // ✅ Build payload matching backend signature
+    const payload = {
+        source_fields: parsedColumns || [],
+        mapping: mappingList
+    };
+
+    console.log('📦 Sending payload:', payload);
+
+    // -------- DISABLE BUTTON & SHOW LOADING --------
     saveBtn.disabled = true;
     saveBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Saving...';
     statusDiv.innerHTML = '<span class="text-info">⏳ Saving mappings...</span>';
 
-    let supplierID = null;
-
+    // -------- SEND REQUEST TO BACKEND --------
     try {
-        for (const [targetId, mapping] of Object.entries(currentMappings)) {
-            let sourceField = mapping.source || '';
-            const formData = new FormData();
-            formData.append('source_field', sourceField);
-            formData.append('target_field_id', targetId);
-            formData.append('is_active', 'true');
-            formData.append('is_mandatory', mandatoryFields.includes(parseInt(targetId)) ? 'true' : 'false');
-            if (mapping.value) {
-                formData.append('prepopulated_value', mapping.value);
-            }
+        const response = await fetch(`/api/mappings/${encodeURIComponent(supplierName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
 
-            const response = await fetch(`/api/mappings/${supplierName}`, {
-                method: 'POST',
-                body: formData
-            });
-
-            if (!response.ok) {
-                const error = await response.json();
-                throw new Error(error.detail || 'Failed to save mapping');
+        // -------- HANDLE RESPONSE --------
+        if (!response.ok) {
+            let errorMessage = `HTTP ${response.status}`;
+            try {
+                const errorData = await response.json();
+                errorMessage = errorData.detail || errorMessage;
+            } catch (e) {
+                // If response is not JSON, use status text
+                errorMessage = response.statusText || errorMessage;
             }
-
-            if (supplierID === null) {
-                const data = await response.json();
-                supplierID = data.supplier_id || data.supplier || null;
-            }
+            throw new Error(errorMessage);
         }
 
-        // ✅ Reset dirty state after successful save
+        const result = await response.json();
+        console.log('✅ Save successful:', result);
+
+        // -------- SUCCESS FEEDBACK --------
         hasChanges = false;
         updateMappingStatus();
 
-        statusDiv.innerHTML = '<span class="text-success">✅ Mappings saved successfully!</span>';
+        statusDiv.innerHTML = `<span class="text-success">✅ Mappings saved successfully!</span>`;
         showToast('Success', `Mappings saved for ${supplierName}`, 'success');
         saveBtn.innerHTML = '<i class="bi bi-save"></i> Save';
 
-        // ✅ REDIRECT TO LISTINGS PAGE
+        // Redirect to listings page after 1.5 seconds
         setTimeout(() => {
             window.location.href = '/mappings-list';
         }, 1500);
 
-    } catch (e) {
-        statusDiv.innerHTML = `<span class="text-danger">❌ ${e.message}</span>`;
-        showToast('Error', e.message, 'danger');
+    } catch (error) {
+        // -------- ERROR HANDLING --------
+        console.error('❌ Save failed:', error);
+        statusDiv.innerHTML = `<span class="text-danger">❌ ${error.message}</span>`;
+        showToast('Error', `Failed to save mappings: ${error.message}`, 'danger');
         saveBtn.disabled = false;
         saveBtn.innerHTML = '<i class="bi bi-save"></i> Save';
     }
