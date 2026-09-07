@@ -160,6 +160,7 @@ async function uploadFile() {
   const fileInput = document.getElementById('fileInput');
   const supplierSelect = document.getElementById('supplierInput');
   const dryRun = document.getElementById('dryRunInput').checked;
+  const batchSize = document.getElementById('batchSizeInput').value;
   const resultDiv = document.getElementById('result');
   const importBtn = document.getElementById('importBtn');
 
@@ -180,7 +181,7 @@ async function uploadFile() {
   formData.append('file', fileInput.files[0]);
   formData.append('supplier', supplierId);
   formData.append('dry_run', dryRun);
-  formData.append('batch_size', 1000);
+  formData.append('batch_size', batchSize);
 
   // Disable button during upload
   importBtn.disabled = true;
