@@ -1,99 +1,76 @@
 {% extends 'base.html' %}
-{% block title %}Edit Mappings for {{ supplier_name or 'Supplier #' + supplier_id|string }}{% endblock %}
+{% block title %}
+  Edit Mappings for {{ supplier_name or 'Supplier #' + supplier_id|string }}
+{% endblock %}
 
 {% block content %}
-<div id="detailView">
+  <div id="detailView">
     <div class="card">
-        <div class="card-header bg-light d-flex justify-content-between align-items-center">
-            <div>
-                <a href="/mappings-list" class="btn btn-sm btn-outline-secondary">
-                    <i class="bi bi-arrow-left"></i> Back
-                </a>
-                <span id="detailTitle" class="ms-3">
-                    <strong>{{ supplier_name or 'Supplier #' + supplier_id|string }}</strong>
-                </span>
-                <span class="badge bg-primary ms-2" id="detailCount">
-                    {{ supplier_mappings|length }} mapping{{ 's' if supplier_mappings|length != 1 else '' }}
-                </span>
-            </div>
-            <div>
-                <button class="btn btn-sm btn-outline-danger" onclick="deleteSupplier({{ supplier_id }}, '{{ supplier_name or supplier_id }}')">
-                    <i class="bi bi-trash"></i> Delete Supplier
-                </button>
-            </div>
+      <div class="card-header bg-light d-flex justify-content-between align-items-center">
+        <div>
+          <a href="/mappings-list" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</a>
+          <span id="detailTitle" class="ms-3"><strong>{{ supplier_name or 'Supplier #' + supplier_id|string }}</strong></span>
         </div>
-        <div class="card-body">
-            <div id="detailContent">
-                {% if target_fields %}
-                    <p class="text-muted">
-                        For each <strong>product table field</strong>, select the corresponding column from your uploaded file or provide a default value.
-                        <span class="text-danger">*</span> indicates mandatory fields.
-                    </p>
-
-                    <div class="table-responsive">
-                        <table class="table table-bordered table-hover">
-                            <thead class="table-light">
-                                <tr>
-                                    <th style="width:5%;">#</th>
-                                    <th style="width:25%;">DB Field</th>
-                                    <th style="width:30%;">Source Field (from file)</th>
-                                    <th style="width:10%;">Mandatory</th>
-                                    <th style="width:25%;">Prepopulated Value</th>
-                                </tr>
-                            </thead>
-                            <tbody id="mappingTableBody">
-                                <!-- Dynamically populated by JavaScript -->
-                            </tbody>
-                        </table>
-                    </div>
-
-                    <!-- Mandatory fields summary -->
-                    <div id="mandatorySummary" class="alert alert-info mt-3" style="display:none;">
-                        <strong>Mandatory Fields:</strong>
-                        <span id="mandatoryList"></span>
-                    </div>
-
-                    <div class="mt-3 d-flex gap-2">
-                        <button class="btn btn-success" onclick="saveMappings({{ supplier_id }})" id="saveBtn">
-                            <i class="bi bi-save"></i> Save Changes
-                        </button>
-                        <button class="btn btn-outline-secondary" onclick="location.reload()">
-                            <i class="bi bi-arrow-counterclockwise"></i> Reset
-                        </button>
-                        <a href="/mappings-list" class="btn btn-outline-secondary">
-                            <i class="bi bi-arrow-left"></i> Cancel
-                        </a>
-                    </div>
-                    <div id="saveStatus" class="mt-2"></div>
-
-                {% else %}
-                    <div class="text-center py-5">
-                        <i class="bi bi-file-earmark-text fs-1 text-muted"></i>
-                        <h5 class="mt-3">No target fields found</h5>
-                        <p class="text-muted">Please ensure the database schema is loaded.</p>
-                    </div>
-                {% endif %}
-            </div>
+        <div>
+          <button class="btn btn-sm btn-outline-danger" onclick="deleteSupplier({{ supplier_id }}, '{{ supplier_name or supplier_id }}')"><i class="bi bi-trash"></i> Delete Supplier</button>
         </div>
+      </div>
+      <div class="card-body">
+        <div id="detailContent">
+          <!-- Always show the mapping table – JS will fetch schema dynamically -->
+          <p class="text-muted">
+            For each <strong>product table field</strong>, select the corresponding column from your uploaded file or provide a default value.
+            <span class="text-danger">*</span> indicates mandatory fields.
+          </p>
+
+          <div class="table-responsive">
+            <table class="table table-bordered table-hover">
+              <thead class="table-light">
+                <tr>
+                  <th style="width:5%;">#</th>
+                  <th style="width:25%;">DB Field</th>
+                  <th style="width:30%;">Source Field (from file)</th>
+                  <th style="width:10%;">Mandatory</th>
+                  <th style="width:25%;">Prepopulated Value</th>
+                </tr>
+              </thead>
+              <tbody id="mappingTableBody">
+                <tr>
+                  <td colspan="5" class="text-center text-muted py-4">
+                    <span class="spinner-border spinner-border-sm" role="status"></span> Loading fields...
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+
+          <!-- Mandatory fields summary -->
+          <div id="mandatorySummary" class="alert alert-info mt-3" style="display:none;">
+            <strong>Mandatory Fields:</strong>
+            <span id="mandatoryList"></span>
+          </div>
+
+          <div class="mt-3 d-flex gap-2">
+            <button class="btn btn-success" onclick="saveMappings()" id="saveBtn" disabled><i class="bi bi-save"></i> Save Changes</button>
+            <button class="btn btn-outline-secondary" onclick="location.reload()"><i class="bi bi-arrow-counterclockwise"></i> Reset</button>
+            <a href="/mappings-list" class="btn btn-outline-secondary"><i class="bi bi-arrow-left"></i> Cancel</a>
+          </div>
+          <div id="saveStatus" class="mt-2"></div>
+        </div>
+      </div>
     </div>
-</div>
+  </div>
 
-<!-- Toast Container -->
-<div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
+  <!-- Toast Container -->
+  <div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
 
-<!-- ✅ Pass data to JavaScript via data attributes -->
-<div id="page-data" 
-     data-supplier-id="{{ supplier_id }}"
-     data-supplier-name="{{ supplier_name }}"
-     data-target-fields="{{ target_fields|tojson|forceescape }}"
-     data-source-fields="{{ source_fields|tojson|forceescape }}"
-     data-supplier-mappings="{{ supplier_mappings|tojson|forceescape }}"
-     style="display:none;">
-</div>
+  <!-- ✅ Pass data to JavaScript via data attributes -->
+  <!-- target_fields is NOT passed from backend – JS will fetch via /api/schema -->
+  <div id="page-data" data-supplier-id="{{ supplier_id }}" data-supplier-name="{{ supplier_name }}" data-source-fields="{{ source_fields|default([])|tojson|forceescape }}" data-supplier-mappings="{{ supplier_mappings|default({})|tojson|forceescape }}" style="display:none;"></div>
 
-{% block scripts %}
-<script src="{{ url_for('static', path='js/render_mapping.js') }}"></script>
-<script src="{{ url_for('static', path='js/mapping_utils.js') }}"></script>
-<script src="{{ url_for('static', path='js/show_mapping.js') }}"></script>
-{% endblock %}
+  {% block scripts %}
+    <script src="{{ url_for('static', path='js/render_mapping.js') }}"></script>
+    <script src="{{ url_for('static', path='js/mapping_utils.js') }}"></script>
+    <script src="{{ url_for('static', path='js/show_mapping.js') }}"></script>
+  {% endblock %}
 {% endblock %}

@@ -3,7 +3,6 @@
 // ============================================================
 
 function renderMappingUI() {
-    console.log('✅ renderMappingUI called');
     const tbody = document.getElementById('mappingTableBody');
     if (!tbody) {
         console.error('❌ mappingTableBody not found');
@@ -13,48 +12,57 @@ function renderMappingUI() {
     const data = getPageData();
     console.log('📦 Page data:', data);
     if (!data) {
-        tbody.innerHTML = `<tr><td colspan="6" class="text-center text-danger">Failed to load data</td></tr>`;
+        tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Failed to load data</td></tr>`;
         return;
     }
 
-    const { targetFields, sourceFields, supplierMappings, supplierId } = data;
+    const { supplierId, supplierName, sourceFields, supplierMappings } = data;
 
-    // Build initial mappings from backend data
-    initialMappings = buildInitialMappings(supplierMappings, targetFields);
-    console.log('📌 Initial mappings:', initialMappings);
+    // ✅ supplierMappings is a list of mapping objects
+    // Each mapping has: target_field_id, target_field_name, source_field, is_mandatory, prepopulated_value
+    const mappingsList = supplierMappings || [];
 
-    // Exclude ProductID
-    const excludedColumns = ['ProductID'];
-    const filteredTargets = targetFields.filter(col => !excludedColumns.includes(col.field_name));
+    console.log('📌 Mappings list:', mappingsList);
+    console.log('📌 Source fields:', sourceFields);
 
-    // Sort: mandatory first
-    const sortedTargets = [...filteredTargets].sort((a, b) => {
-        const aRequired = a.is_nullable === false;
-        const bRequired = b.is_nullable === false;
-        if (aRequired && !bRequired) return -1;
-        if (!aRequired && bRequired) return 1;
-        return 0;
-    });
+    if (mappingsList.length === 0) {
+        tbody.innerHTML = `
+            <tr>
+                <td colspan="5" class="text-center text-muted py-4">
+                    No mappings found for this supplier.
+                </td>
+            </tr>
+        `;
+        return;
+    }
 
     // Reset currentMappings
     currentMappings = {};
+    initialMappings = {};
 
     let html = '';
-    sortedTargets.forEach((target, index) => {
-        const targetName = target.field_name;
-        const targetId = target.id;
-        const isNullable = target.is_nullable;
-        const isMandatory = isNullable === false;
-        const mapping = supplierMappings[targetName] || {};
+    mappingsList.forEach((mapping, index) => {
+        const targetId = mapping.target_field_id;
+        const targetName = mapping.target_field_name || `Field_${targetId}`;
         const hasSource = mapping.source_field || null;
-        const isMandatoryChecked = mapping.is_mandatory || false;
+        const isMandatory = mapping.is_mandatory || false;
         const prepopulatedValue = mapping.prepopulated_value || '';
+        const dataType = mapping.data_type || '';
 
-        // Store initial state
+        // Store current state for change detection
         currentMappings[targetName] = {
             source_field: hasSource,
-            is_mandatory: isMandatoryChecked,
-            prepopulated_value: prepopulatedValue
+            is_mandatory: isMandatory,
+            prepopulated_value: prepopulatedValue,
+            target_id: targetId
+        };
+
+        // Also store initial state for change detection
+        initialMappings[targetName] = {
+            source_field: hasSource,
+            is_mandatory: isMandatory,
+            prepopulated_value: prepopulatedValue,
+            target_id: targetId
         };
 
         html += `
@@ -63,7 +71,7 @@ function renderMappingUI() {
                 <td>
                     <strong>${targetName}</strong>
                     ${isMandatory ? '<span class="text-danger">*</span>' : ''}
-                    <br><span class="text-muted small">${target.data_type || ''}</span>
+                    <br><span class="text-muted small">${dataType}</span>
                     <br><span class="text-muted small">ID: ${targetId}</span>
                 </td>
                 <td>
@@ -79,7 +87,7 @@ function renderMappingUI() {
                 <td class="text-center">
                     <input type="checkbox" class="form-check-input mandatory-check" 
                            data-target-id="${targetId}"
-                           ${isMandatoryChecked ? 'checked' : ''}
+                           ${isMandatory ? 'checked' : ''}
                            ${isMandatory ? 'disabled' : ''}>
                 </td>
                 <td>
@@ -92,17 +100,6 @@ function renderMappingUI() {
         `;
     });
 
-    if (sortedTargets.length === 0) {
-        tbody.innerHTML = `
-            <tr>
-                <td colspan="6" class="text-center text-muted py-4">
-                    No fields available for mapping after excluding: ${excludedColumns.join(', ')}
-                </td>
-            </tr>
-        `;
-        return;
-    }
-
     tbody.innerHTML = html;
 
     // Update mandatory summary
@@ -114,6 +111,4 @@ function renderMappingUI() {
     // Reset dirty state
     hasChanges = false;
     updateSaveButton();
-
-    console.log('✅ renderMappingUI completed');
 }

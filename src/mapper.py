@@ -55,11 +55,7 @@ class FieldMapper:
             return self._cache[cache_key]
 
         with local_session() as session:
-            query = session.query(MappingConfig).filter(
-                MappingConfig.supplier_id == supplier_id
-            )
-            if active_only:
-                query = query.filter(MappingConfig.is_active == True)
+            query = session.query(Supplier).filter(Supplier.id == supplier_id)
 
             # ✅ Build list of dicts with all fields
             mappings = []
@@ -100,7 +96,7 @@ class FieldMapper:
         is_new_supplier: bool = False,
     ):
         """
-        Save a mappings for a supplier.
+        Save mappings for a supplier.
 
         Args:
             supplier_name: Name of the supplier (will be resolved to ID)
@@ -114,33 +110,137 @@ class FieldMapper:
                 - prepopulated_value: str or None
         """
 
+        print("=" * 70)
+        print("🔍 SAVE_MAPPINGS DEBUG START")
+        print("=" * 70)
+        print(f"📌 supplier_name: {supplier_name}")
+        print(f"📌 is_new_supplier: {is_new_supplier}")
+        print(f"📌 incoming source_fields: {source_fields}")
+        print(
+            f"📌 incoming source_fields count: {len(source_fields) if source_fields else 0}"
+        )
+        print(f"📌 incoming mappings count: {len(mappings) if mappings else 0}")
+
+        if mappings and len(mappings) > 0:
+            print(f"📌 First 3 incoming mappings: {mappings[:3]}")
+        else:
+            print("⚠️ incoming mappings is empty or None")
+        print("=" * 70)
+
         with local_session() as session:
             if is_new_supplier:
+                print("🔍 Creating NEW supplier...")
+
                 sup = Supplier(
                     name=supplier_name,
                     source_fields=source_fields,
                     mappings=mappings,
                 )
                 session.add(sup)
-                session.flush()  # Flush to get the ID
+                session.flush()
                 supplier_id = sup.id
+
+                print(f"✅ Created new supplier with ID: {supplier_id}")
+                print(f"✅ Supplier name: {sup.name}")
+                print(f"✅ source_fields: {sup.source_fields}")
+                print(f"✅ mappings count: {len(sup.mappings) if sup.mappings else 0}")
+
                 logger.info(
-                    f"Created mapping: name={supplier_name}, source_fields={source_fields}"
-                )
-            else:
-                # ✅ Resolve supplier name to ID (using cached helper)
-                sup, supplier_id = self._get_supplier_id(supplier_name)
-                # ✅ Use supplier_id in the filter
-                sup.source_fields = source_fields
-                sup.mappings = mappings
-                sup.updated_at = datetime.utcnow()
-                logger.info(
-                    f"Updated mapping: name={supplier_name}, source_fields={source_fields}"
+                    f"Created mapping: name={supplier_name}, "
+                    f"source_fields={len(source_fields)}, "
+                    f"mappings={len(mappings)}"
                 )
 
-            session.commit()
+            else:
+                print("🔍 Updating EXISTING supplier...")
+                print(f"🔍 Looking for supplier: {supplier_name}")
+
+                # ✅ Use different variable names to avoid confusion
+                existing = self._get_supplier_id(supplier_name)
+
+                # ✅ Check if supplier exists
+                if existing is None or existing[0] is None:
+                    print(f"❌ Supplier '{supplier_name}' not found!")
+                    raise ValueError(f"Supplier '{supplier_name}' not found")
+
+                # ✅ Unpack safely
+                (
+                    existing_id,
+                    existing_name,
+                    existing_updated_at,
+                    existing_created_at,
+                    existing_mappings,
+                    existing_source_fields,
+                ) = existing
+
+                print(f"🔍 _get_supplier_id returned: supplier_id={existing_id}")
+                print(f"✅ Found supplier: {existing_name} (ID: {existing_id})")
+                print(f"📌 BEFORE update - source_fields: {existing_source_fields}")
+                print(
+                    f"📌 BEFORE update - mappings count: {len(existing_mappings) if existing_mappings else 0}"
+                )
+                print(f"📌 BEFORE update - updated_at: {existing_updated_at}")
+
+                # ✅ Get the supplier object for update
+                sup = session.query(Supplier).filter(Supplier.id == existing_id).first()
+
+                if sup is None:
+                    print(f"❌ Supplier with ID {existing_id} not found in session!")
+                    raise ValueError(f"Supplier with ID {existing_id} not found")
+
+                # ✅ Update fields
+                print(f"📌 Setting source_fields to: {source_fields}")
+                sup.source_fields = source_fields
+
+                print(f"📌 Setting mappings to: {mappings}")
+                sup.mappings = mappings
+
+                sup.updated_at = datetime.utcnow()
+
+                supplier_id = sup.id  # Ensure supplier_id is set for return
+
+                print(f"📌 AFTER update - source_fields: {sup.source_fields}")
+                print(
+                    f"📌 AFTER update - mappings count: {len(sup.mappings) if sup.mappings else 0}"
+                )
+                print(f"📌 AFTER update - updated_at: {sup.updated_at}")
+
+                logger.info(
+                    f"Updated mapping: name={supplier_name}, "
+                    f"source_fields={len(source_fields)}, "
+                    f"mappings={len(mappings)}"
+                )
+
+            # ✅ Commit
+            print("🔍 Committing to database...")
+            try:
+                session.commit()
+                print("✅ Commit successful!")
+
+                # ✅ Refresh to verify
+                session.refresh(sup)
+                print(f"🔍 AFTER REFRESH - source_fields: {sup.source_fields}")
+                print(
+                    f"🔍 AFTER REFRESH - mappings count: {len(sup.mappings) if sup.mappings else 0}"
+                )
+                print(f"🔍 AFTER REFRESH - updated_at: {sup.updated_at}")
+
+            except Exception as e:
+                print(f"❌ Commit failed: {e}")
+                session.rollback()
+                raise e
+
+            # ✅ Clear caches
+            print("🔍 Clearing caches...")
             self._cache.clear()
             self._supplier_cache.clear()
+            print("✅ Caches cleared")
+
+            print("=" * 70)
+            print("🔍 SAVE_MAPPINGS DEBUG END")
+            print(f"📌 Returning: name={sup.name}")
+            print("=" * 70 + "\n")
+
             return sup, supplier_id
 
     def delete_supplier(self, supplier_id: int) -> bool:
@@ -156,90 +256,13 @@ class FieldMapper:
 
         with local_session() as session:
             # Check if supplier exists
-            supplier = (
-                session.query(Supplier).filter(Supplier.id == supplier_id).first()
-            )
-            if not supplier:
-                logger.warning(f"Supplier with ID {supplier_id} not found")
-                return False
-
-            # ✅ Delete all mappings for this supplier first
-            deleted_mappings = (
-                session.query(MappingConfig)
-                .filter(MappingConfig.supplier_id == supplier_id)
-                .delete()
-            )
-
-            # ✅ Delete the supplier
-            session.delete(supplier)
-            session.commit()
-
-            # Clear caches
+            session.query(Supplier).filter(Supplier.id == supplier_id).delete()
+            # Delete all mappings for this supplier
             self._cache.clear()
             self._supplier_cache.clear()
 
-            logger.info(
-                f"Deleted supplier ID {supplier_id} with {deleted_mappings} mappings"
-            )
+            logger.info(f"Deleted supplier ID {supplier_id}")
             return True
-
-    def delete_mappings(self, supplier_id: int) -> int:
-        """
-        Delete all mappings for a supplier.
-
-        Args:
-            supplier_id: ID of the supplier
-
-        Returns:
-            Number of mappings deleted
-        """
-
-        with local_session() as session:
-            deleted = (
-                session.query(MappingConfig)
-                .filter(MappingConfig.supplier_id == supplier_id)  # ✅ Use supplier_id
-                .delete()
-            )
-            session.commit()
-
-            self._cache.clear()
-            self._supplier_cache.clear()
-
-            logger.info(f"Deleted {deleted} mappings for supplier '{supplier_id}'")
-            return deleted
-
-    def delete_mapping(self, supplier_id: int, source_field: str) -> bool:
-        """
-        Delete a specific mapping.
-
-        Args:
-            supplier_id: ID of the supplier
-            source_field: Source field to delete
-
-        Returns:
-            True if deleted, False if not found
-        """
-
-        with local_session() as session:
-            mapping = (
-                session.query(MappingConfig)
-                .filter(
-                    MappingConfig.supplier_id == supplier_id,
-                    MappingConfig.source_field == source_field,
-                )
-                .first()
-            )
-
-            if mapping:
-                session.delete(mapping)
-                session.commit()
-                self._cache.clear()
-                self._supplier_cache.clear()
-                logger.info(f"Deleted mapping: {source_field} for '{supplier_id}'")
-                return True
-
-            logger.warning(f"Mapping not found: {source_field} for '{supplier_id}'")
-            return False
 
     def get_all_suppliers(self) -> List[str]:
         """Get list of all supplier names with mappings."""
@@ -272,6 +295,7 @@ class FieldMapper:
                 "id": supplier.id,
                 "name": supplier.name,
                 "source_fields": supplier.source_fields or [],
+                "mappings": supplier.mappings or [],
                 "created_at": (
                     supplier.created_at.isoformat() if supplier.created_at else None
                 ),
@@ -279,38 +303,6 @@ class FieldMapper:
                     supplier.updated_at.isoformat() if supplier.updated_at else None
                 ),
             }
-
-    def save_source_fields(self, supplier_id: int, source_fields: List[str]) -> bool:
-        """
-        Save the source fields (column headers) for a supplier.
-
-        Args:
-            supplier_id: ID of the supplier
-            source_fields: List of column names from the uploaded file
-
-        Returns:
-            True if saved successfully, False if supplier not found
-        """
-        with local_session() as session:
-            supplier = (
-                session.query(Supplier).filter(Supplier.id == supplier_id).first()
-            )
-            if not supplier:
-                logger.warning(f"Supplier with ID {supplier_id} not found")
-                return False
-
-            # ✅ Overwrite source_fields (replace, not merge)
-            supplier.source_fields = source_fields
-            supplier.updated_at = datetime.utcnow()
-            session.commit()
-
-            # Clear cache
-            self._supplier_cache.clear()
-
-            logger.info(
-                f"Saved {len(source_fields)} source fields for supplier ID {supplier_id}"
-            )
-            return True
 
     def get_source_fields(self, supplier_id: int) -> Optional[List[str]]:
         """
@@ -402,117 +394,6 @@ class FieldMapper:
 
         return result_df
 
-    def preview_mapping(self, df: pd.DataFrame, mapping: Dict[str, str]) -> None:
-        """
-        Preview the mapping for dry-run.
-
-        Args:
-            df: Input DataFrame
-            mapping: Dictionary mapping source_field -> target_field
-        """
-        logger.info("=" * 50)
-        logger.info("MAPPING PREVIEW")
-        logger.info("=" * 50)
-
-        logger.info(f"CSV Columns ({len(df.columns)}): {list(df.columns)}")
-        logger.info(f"Mapping ({len(mapping)}): {mapping}")
-
-        # Show which columns will be mapped
-        mapped_cols = [col for col in mapping.keys() if col in df.columns]
-        missing_cols = [col for col in mapping.keys() if col not in df.columns]
-
-        logger.info(f"Found columns: {len(mapped_cols)}")
-        logger.info(f"Missing columns: {len(missing_cols)}")
-        if missing_cols:
-            logger.warning(f"Missing: {missing_cols}")
-
-        if not df.empty:
-            logger.info("\nFirst 3 rows preview:")
-            print(df.head(3).to_string())
-
-        logger.info("=" * 50)
-
-    # ========== Auto-Detection ==========
-    def detect_mapping_suggestions(
-        self,
-        df: pd.DataFrame,
-        target_columns: List[str],
-        similarity_threshold: float = 0.6,
-    ) -> Dict[str, str]:
-        """
-        Auto-detect mapping suggestions based on column name similarity.
-
-        Args:
-            df: Input DataFrame
-            target_columns: List of target column names
-            similarity_threshold: Minimum similarity score (0-1)
-
-        Returns:
-            Dictionary mapping source_field -> suggested_target
-        """
-        if df.empty:
-            return {}
-
-        source_columns = list(df.columns)
-        suggestions = {}
-
-        for source_col in source_columns:
-            # Exact match
-            if source_col in target_columns:
-                suggestions[source_col] = source_col
-                continue
-
-            # Case-insensitive match
-            lower_source = source_col.lower()
-            lower_targets = {c.lower(): c for c in target_columns}
-
-            if lower_source in lower_targets:
-                suggestions[source_col] = lower_targets[lower_source]
-                continue
-
-            # Partial match (contains)
-            for target_col in target_columns:
-                if (
-                    source_col.lower() in target_col.lower()
-                    or target_col.lower() in source_col.lower()
-                ):
-                    suggestions[source_col] = target_col
-                    break
-
-            # Fuzzy/close match (Levenshtein-like)
-            # This is a simplified version; you can use fuzzywuzzy for better matching
-            if source_col not in suggestions:
-                for target_col in target_columns:
-                    if (
-                        self._similarity_score(source_col, target_col)
-                        >= similarity_threshold
-                    ):
-                        suggestions[source_col] = target_col
-                        break
-
-        logger.info(f"Auto-detected {len(suggestions)} mapping suggestions")
-        return suggestions
-
-    def _similarity_score(self, s1: str, s2: str) -> float:
-        """Calculate simple similarity score between two strings."""
-        s1 = s1.lower().strip()
-        s2 = s2.lower().strip()
-
-        if s1 == s2:
-            return 1.0
-
-        # Common substring ratio
-        if s1 in s2 or s2 in s1:
-            return 0.8
-
-        # Character overlap
-        common = len(set(s1) & set(s2))
-        max_len = max(len(s1), len(s2))
-        if max_len > 0:
-            return common / max_len
-
-        return 0.0
-
     # ========== Utility Methods ==========
 
     def clear_cache(self) -> None:
@@ -521,128 +402,64 @@ class FieldMapper:
         self._supplier_cache.clear()
         logger.debug("Mapping cache cleared")
 
-    def get_inverse_mapping(self, supplier_id: int) -> Dict[str, Dict[str, Any]]:
-        """
-        Get inverse mapping: target_field -> details dict.
-
-        Args:
-            supplier_id: ID of the supplier
-
-        Returns:
-            Dictionary mapping target_field -> {
-                source_field: str,
-                is_mandatory: bool,
-                is_active: bool,
-                prepopulated_value: str or None
-            }
-        """
-
-        mappings = self.get_mappings(supplier_id, active_only=False)
-        result = {}
-        for m in mappings:
-            target = m.get("target_field")
-            if target:
-                result[target] = {
-                    "source_field": m.get("source_field"),
-                    "is_mandatory": m.get("is_mandatory", False),
-                    "is_active": m.get("is_active", True),
-                    "prepopulated_value": m.get("prepopulated_value"),
-                }
-        return result
-
-    def validate_mapping(
-        self, df: pd.DataFrame, mapping: Dict[str, str]
-    ) -> Tuple[bool, List[str], List[str]]:
-        """
-        Validate a mapping against a DataFrame.
-
-        Args:
-            df: Input DataFrame
-            mapping: Dictionary mapping source_field -> target_field
-
-        Returns:
-            Tuple of (is_valid, missing_columns, mapped_columns)
-        """
-        missing_columns = [col for col in mapping.keys() if col not in df.columns]
-        mapped_columns = [col for col in mapping.keys() if col in df.columns]
-        is_valid = len(missing_columns) == 0
-
-        if missing_columns:
-            logger.warning(f"Missing columns for mapping: {missing_columns}")
-
-        return is_valid, missing_columns, mapped_columns
-
-    # ========== New Methods (for backward compatibility) ==========
-
-    def get_mappings_with_details(
-        self, supplier_id: int, active_only: bool = True
-    ) -> Dict[str, Dict[str, Any]]:
-        """
-        Get all mappings for a supplier with full details.
-
-        Args:
-            supplier_id: ID of the supplier
-            active_only: Only return active mappings
-
-        Returns:
-            Dictionary mapping target_field -> details
-        """
-
-        cache_key = f"details_{supplier_id}_{active_only}"
-        if cache_key in self._cache:
-            return self._cache[cache_key]
-
-        with local_session() as session:
-            query = session.query(MappingConfig).filter(
-                MappingConfig.supplier_id == supplier_id
-            )
-
-            if active_only:
-                query = query.filter(MappingConfig.is_active == True)
-
-            mappings = query.all()
-
-            result = {}
-            for m in mappings:
-                target_field_name = (
-                    m.target_field.field_name if m.target_field else None
-                )
-                result[target_field_name] = {
-                    "source_field": m.source_field,
-                    "is_mandatory": m.is_mandatory,
-                    "is_active": m.is_active,
-                    "prepopulated_value": m.prepopulated_value,
-                }
-
-            self._cache[cache_key] = result
-            return result
-
     # ========== Helper Methods ==========
 
-    def _get_supplier_id(self, supplier_name: str) -> Optional[int]:
-        """Get supplier ID from name (with caching)."""
-        if supplier_name in self._supplier_cache:
-            return self._supplier_cache[supplier_name]
+    def _get_supplier_id(self, supplier_name: str):
+        """Get supplier by name."""
+        print(f"🔍 _get_supplier_id called with: {supplier_name}")
+
         with local_session() as session:
             sup = session.query(Supplier).filter(Supplier.name == supplier_name).first()
-            supplier_id = sup.id if sup else None
-            self._supplier_cache[supplier_name] = supplier_id
-            return sup, supplier_id
+
+            if sup:
+                print(f"✅ Found supplier: {sup.name} (ID: {sup.id})")
+                return (
+                    sup.id,
+                    sup.name,
+                    sup.updated_at,
+                    sup.created_at,
+                    sup.mappings,
+                    sup.source_fields,
+                )
+            else:
+                print(f"❌ Supplier '{supplier_name}' not found in database")
+                return None
 
     def _get_or_create_supplier(
         self, supplier_name: str, source_fields: List[str] = None
     ) -> Tuple[Supplier, int]:
         """Get supplier ID, or create a new supplier if it doesn't exist."""
-        sup, supplier_id = self._get_supplier_id(supplier_name)
+        (
+            supplier_id,
+            name,
+            updated_at,
+            created_at,
+            mappings,
+            source_fields,
+        ) = self._get_supplier_id(supplier_name)
         if supplier_id is not None:
-            return sup, supplier_id
+            return (
+                supplier_id,
+                name,
+                updated_at,
+                created_at,
+                mappings,
+                source_fields,
+            )
 
         with local_session() as session:
             sup = Supplier(name=supplier_name, source_fields=source_fields)
             session.add(sup)
             session.commit()
             self._supplier_cache[supplier_name] = sup.id
-            return sup, sup.id
+            return (
+                sup.id,
+                sup.name,
+                sup.updated_at,
+                sup.created_at,
+                sup.mappings,
+                sup.source_fields,
+            )
 
 
 # ========== Singleton Accessor ==========

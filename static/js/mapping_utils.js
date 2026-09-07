@@ -4,6 +4,32 @@
  */
 
 // ============================================================
+// GET PAGE DATA (from show_mapping.html)
+// ============================================================
+
+function getPageData() {
+    const el = document.getElementById('page-data');
+    if (!el) return null;
+
+    try {
+        let supplierMappings = JSON.parse(el.dataset.supplierMappings || '[]');
+        if (!Array.isArray(supplierMappings)) {
+            supplierMappings = Object.values(supplierMappings);
+        }
+
+        return {
+            supplierId: parseInt(el.dataset.supplierId),
+            supplierName: el.dataset.supplierName,
+            sourceFields: JSON.parse(el.dataset.sourceFields || '[]'),
+            supplierMappings: supplierMappings
+        };
+    } catch (e) {
+        console.error('❌ Failed to parse page data:', e);
+        return null;
+    }
+}
+
+// ============================================================
 // 1. COLLECT MAPPINGS FROM UI
 // ============================================================
 
@@ -39,6 +65,16 @@ function collectMappingsFromUI(
     });
 
     return currentState;
+}
+
+// ============================================================
+// UI HELPERS
+// ============================================================
+
+// ===== Update Save Button =====
+function updateSaveButton() {
+    const saveBtn = document.getElementById('saveBtn');
+    if (saveBtn) saveBtn.disabled = !hasChanges;
 }
 
 
@@ -357,6 +393,30 @@ function scrollToFirstError() {
     }
 }
 
+// ============================================================
+// Detect if this is a new supplier (multiple checks)
+// ============================================================
+function isNewSupplierPage() {
+    // Check 1: Does #page-data exist with supplierId?
+    const pageDataEl = document.getElementById('page-data');
+    if (pageDataEl && pageDataEl.dataset.supplierId) {
+        return false;  // Edit page
+    }
+
+    // Check 2: Does supplier name input exist?
+    if (document.getElementById('supplierName')) {
+        return true;   // Add page
+    }
+
+    // Check 3: Check URL path
+    if (window.location.pathname.includes('/add-mapping')) {
+        return true;   // Add page
+    }
+
+    // Default: assume new supplier
+    return true;
+}
+
 
 // ============================================================
 // 8. SHOW VALIDATION ERRORS IN UI
@@ -379,6 +439,231 @@ function renderValidationErrors(statusDiv, errors) {
     html += `<div class="mt-2"><small>Please fix the highlighted fields and try again.</small></div>`;
     statusDiv.innerHTML = html;
 }
+
+// ============================================================
+// SAVE MAPPINGS – WITH TARGET NAME
+// ============================================================
+
+async function saveMappings() {
+    const saveBtn = document.getElementById('saveBtn');
+    const statusDiv = document.getElementById('saveStatus');
+
+    // ============================================================
+    // Step 1: Get supplier name
+    // ============================================================
+    let supplierName = '';
+
+    const data = getPageData();
+    if (data?.supplierName) {
+        supplierName = data.supplierName;
+    } else {
+        const nameInput = document.getElementById('supplierName');
+        if (nameInput) {
+            supplierName = nameInput.value.trim();
+        }
+    }
+
+    if (!supplierName) {
+        const titleEl = document.getElementById('detailTitle');
+        if (titleEl) {
+            supplierName = titleEl.textContent?.trim() || '';
+        }
+    }
+
+    if (!supplierName) {
+        statusDiv.innerHTML = '<span class="text-danger">❌ Supplier name not found. Please enter a name.</span>';
+        showToast('Error', 'Supplier name not found', 'danger');
+        return;
+    }
+
+    console.log('📌 Supplier Name:', supplierName);
+
+    // ============================================================
+    // Step 2: Get page data
+    // ============================================================
+    const pageData = getPageData();
+    console.log('📌 Page Data:', pageData);
+
+    // ============================================================
+    // Step 3: Determine source fields
+    // ============================================================
+    // ✅ Use backend source_fields if available, otherwise use parsedFileColumns
+    let sourceFields = [];
+
+    if (pageData?.sourceFields && pageData.sourceFields.length > 0) {
+        // Edit page: source_fields from backend
+        sourceFields = pageData.sourceFields;
+        console.log('📌 Using source_fields from backend:', sourceFields);
+    } else if (parsedFileColumns && parsedFileColumns.length > 0) {
+        // Add page: source_fields from parsed file
+        sourceFields = parsedFileColumns;
+        console.log('📌 Using parsedFileColumns:', sourceFields);
+    } else {
+        // Fallback: try to get from data attribute
+        const sourceFieldsEl = document.getElementById('page-data');
+        if (sourceFieldsEl) {
+            try {
+                const sourceData = JSON.parse(sourceFieldsEl.dataset.sourceFields || '[]');
+                if (sourceData.length > 0) {
+                    sourceFields = sourceData;
+                    console.log('📌 Using source_fields from data attribute:', sourceFields);
+                }
+            } catch (e) {
+                console.warn('Could not parse source_fields from data attribute');
+            }
+        }
+    }
+
+    // ============================================================
+    // Step 4: Collect current state from UI
+    // ============================================================
+    const currentState = collectMappingsFromUI();
+    console.log('📌 Current State:', currentState);
+
+    // ============================================================
+    // Step 5: Ensure initialMappings exists
+    // ============================================================
+    if (!initialMappings || Object.keys(initialMappings).length === 0) {
+        initialMappings = JSON.parse(JSON.stringify(currentState));
+        console.log('⚠️ initialMappings was empty – set to currentState');
+    }
+
+    // ============================================================
+    // Step 6: Detect changes
+    // ============================================================
+    const changes = detectChanges(currentState, initialMappings);
+    console.log('📌 Changes detected:', changes);
+
+    if (changes.length === 0) {
+        statusDiv.innerHTML = '<span class="text-info">ℹ️ No changes to save.</span>';
+        showToast('Info', 'No changes to save', 'info');
+        return;
+    }
+
+    // ============================================================
+    // Step 7: Validate mandatory fields
+    // ============================================================
+    const mandatoryErrors = validateMandatoryFields(currentState);
+    if (mandatoryErrors.length > 0) {
+        highlightErrorRows(mandatoryErrors);
+        renderValidationErrors(statusDiv, mandatoryErrors);
+        showToast('Validation Error', `${mandatoryErrors.length} mandatory field(s) missing values.`, 'danger');
+        scrollToFirstError();
+        return;
+    }
+
+    // ============================================================
+    // Step 8: Build COMPLETE mapping list (ALL fields)
+    // ============================================================
+    const mappingList = Object.entries(currentState).map(([targetName, state]) => ({
+        target_field_name: targetName,
+        source_field: state.source_field || '',
+        target_field_id: state.target_id,
+        is_active: true,
+        is_mandatory: state.is_mandatory || false,
+        prepopulated_value: state.prepopulated_value || ''
+    }));
+
+    console.log(`📦 Total mappings to save: ${mappingList.length}`);
+
+    if (mappingList.length === 0) {
+        statusDiv.innerHTML = '<span class="text-warning">⚠️ No valid mappings to save.</span>';
+        showToast('Warning', 'No valid mappings to save.', 'warning');
+        return;
+    }
+
+    // ============================================================
+    // Step 9: Detect if this is a new supplier
+    // ============================================================
+    function isNewSupplierPage() {
+        const pageDataEl = document.getElementById('page-data');
+        if (pageDataEl && pageDataEl.dataset.supplierId) {
+            return false;
+        }
+        if (document.getElementById('supplierName')) {
+            return true;
+        }
+        if (window.location.pathname.includes('/add-mapping')) {
+            return true;
+        }
+        return true;
+    }
+
+    // ============================================================
+    // Step 10: Build payload
+    // ============================================================
+    const payload = {
+        source_fields: sourceFields,  // ✅ Now uses backend source_fields
+        mappings: mappingList,
+        is_new_supplier: isNewSupplierPage()
+    };
+
+    console.log('📦 Sending payload:', JSON.stringify(payload, null, 2));
+    console.log('📌 source_fields:', sourceFields);
+    console.log('📌 is_new_supplier:', payload.is_new_supplier);
+
+    // ============================================================
+    // Step 11: Send to backend
+    // ============================================================
+    saveBtn.disabled = true;
+    statusDiv.innerHTML = `<span class="text-info">⏳ Saving ${mappingList.length} mapping(s)...</span>`;
+
+    try {
+        const response = await fetch(`/api/mappings/${encodeURIComponent(supplierName)}`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
+
+        console.log('📌 Response status:', response.status);
+
+        if (!response.ok) {
+            let errorMessage = `HTTP ${response.status}`;
+            let errorDetail = null;
+
+            try {
+                const errorData = await response.json();
+                console.error('📌 Backend error response:', errorData);
+                errorDetail = errorData;
+                errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+            } catch (e) {
+                errorMessage = response.statusText || errorMessage;
+            }
+
+            throw { message: errorMessage, detail: errorDetail, status: response.status };
+        }
+
+        const result = await response.json();
+        console.log('✅ Save successful:', result);
+
+        hasChanges = false;
+        updateSaveButton();
+
+        statusDiv.innerHTML = `<span class="text-success">✅ ${mappingList.length} mappings saved successfully!</span>`;
+        showToast('Success', `Mappings saved for ${supplierName}`, 'success');
+        saveBtn.innerHTML = '<i class="bi bi-save"></i> Save Changes';
+
+        setTimeout(() => {
+            if (result.supplier_id) {
+                window.location.href = `/show-mapping/${result.supplier_id}`;
+            } else {
+                window.location.reload();
+            }
+        }, 1500);
+
+    } catch (error) {
+        console.error('❌ Save failed:', error);
+
+        const errorMsg = error.detail ? JSON.stringify(error.detail) : error.message;
+        statusDiv.innerHTML = `<span class="text-danger">❌ ${errorMsg}</span>`;
+        showToast('Error', `Failed to save mappings: ${error.message}`, 'danger');
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-save"></i> Save Changes';
+    }
+}
+
 
 
 // ============================================================

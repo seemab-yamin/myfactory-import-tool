@@ -79,34 +79,18 @@ async def mappings_page(request: Request, supplier_id: int):
             status_code=404, detail=f"Supplier with ID {supplier_id} not found"
         )
 
-    # ✅ Get existing mappings
-    supplier_mappings = mapper.get_inverse_mapping(supplier_id)
-
-    # ✅ Get source fields (column headers from uploaded file)
-    source_fields = supplier.get("source_fields", [])
-
-    # ✅ Build mapping state: source_field -> target_field
-    mapping_state = {}
-    for field in source_fields:
-        # Check if this source field already has a mapping
-        mapped_target = None
-        for target, details in supplier_mappings.items():
-            if details.get("source_field") == field:
-                mapped_target = target
-                break
-        mapping_state[field] = mapped_target
-
     return templates.TemplateResponse(
         request,
         "show_mapping.html",
         {
-            "request": request,
-            "supplier_id": supplier_id,
+            "supplier_id": supplier.get("id"),
             "supplier_name": supplier.get("name"),
-            "source_fields": source_fields,  # ✅ Pass source fields
-            "mapping_state": mapping_state,  # ✅ Pass mapping state
-            "supplier_mappings": supplier_mappings,
-            "target_fields": mapper.get_target_fields(),  # ✅ All available target fields
+            "source_fields": (
+                supplier.get("source_fields") if supplier.get("source_fields") else []
+            ),
+            "supplier_mappings": (
+                supplier.get("mappings") if supplier.get("mappings") else {}
+            ),
         },
     )
 
@@ -291,42 +275,6 @@ async def api_save_mappings(
         "status": "created",
         "supplier_id": supplier_id,
         "supplier_name": supplier_name,
-    }
-
-
-@router.delete("/api/mappings/{supplier_name}/{source_field}")
-async def api_delete_mapping(
-    supplier_name: str,
-    source_field: str,
-):
-    """Delete a specific mapping for a supplier by source field."""
-    if not ensure_configured():
-        raise HTTPException(
-            status_code=400, detail="Database not configured. Run setup first."
-        )
-
-    mapper = get_mapper()
-
-    # Resolve supplier name to ID
-    supplier_id = mapper._get_supplier_id(supplier_name)
-    if supplier_id is None:
-        raise HTTPException(
-            status_code=404, detail=f"Supplier '{supplier_name}' not found"
-        )
-
-    # Delete the mapping
-    deleted = mapper.delete_mapping(supplier_id, source_field)
-    if not deleted:
-        raise HTTPException(
-            status_code=404,
-            detail=f"Mapping with source field '{source_field}' not found for supplier '{supplier_name}'",
-        )
-
-    return {
-        "status": "deleted",
-        "supplier_name": supplier_name,
-        "source_field": source_field,
-        "message": f"Mapping '{source_field}' deleted successfully",
     }
 
 

@@ -30,12 +30,6 @@ function getPageData() {
 // UI HELPERS
 // ============================================================
 
-// ===== Update Save Button =====
-function updateSaveButton() {
-    const saveBtn = document.getElementById('saveBtn');
-    if (saveBtn) saveBtn.disabled = !hasChanges;
-}
-
 // ===== Mark Dirty =====
 function markDirty() {
     hasChanges = true;
@@ -155,88 +149,6 @@ function updateMandatorySummary() {
     }
 }
 
-// ============================================================
-// SAVE MAPPINGS (using shared utils)
-// ============================================================
-
-async function saveMappings(supplierId) {
-    const saveBtn = document.getElementById('saveBtn');
-    const statusDiv = document.getElementById('saveStatus');
-
-    // Step 1: Collect current state from UI
-    const currentState = collectMappingsFromUI();
-
-    // Step 2: Detect changes
-    const changes = detectChanges(currentState, initialMappings);
-
-    if (changes.length === 0) {
-        statusDiv.innerHTML = '<span class="text-info">ℹ️ No changes to save.</span>';
-        showToast('Info', 'No changes to save', 'info');
-        return;
-    }
-
-    // Step 3: Validate mandatory fields in the current state
-    const mandatoryErrors = validateMandatoryFields(currentState);
-    if (mandatoryErrors.length > 0) {
-        highlightErrorRows(mandatoryErrors);
-        renderValidationErrors(statusDiv, mandatoryErrors);
-        showToast('Validation Error', `${mandatoryErrors.length} mandatory field(s) missing values.`, 'danger');
-        scrollToFirstError();
-        return;
-    }
-
-    // Step 4: Separate updates and deletions
-    const toUpdate = changes.filter(c => !c.was_removed && (c.source_field || c.prepopulated_value));
-    const toDelete = changes.filter(c => c.was_removed);
-
-    // For prepopulated-only mappings, set unique source_field
-    toUpdate.forEach(c => {
-        if ((!c.source_field || c.source_field.trim() === '') && c.prepopulated_value) {
-            c.source_field = `None`;
-        }
-    });
-
-    // Step 5: Validate updates (duplicates, etc.)
-    const updateErrors = validateMappings(toUpdate);
-    if (updateErrors.length > 0) {
-        highlightErrorRows(updateErrors);
-        renderValidationErrors(statusDiv, updateErrors);
-        showToast('Validation Error', `${updateErrors.length} error(s) found.`, 'danger');
-        scrollToFirstError();
-        return;
-    }
-
-    // ✅ At this point, all mandatory fields are valid, and we have real changes to apply.
-    if (toUpdate.length === 0 && toDelete.length === 0) {
-        // This should not happen now, but keep as safety
-        statusDiv.innerHTML = '<span class="text-warning">⚠️ No valid mappings to save.</span>';
-        showToast('Warning', 'No valid mappings to save.', 'warning');
-        return;
-    }
-
-    console.log(`📦 Changes: ${toUpdate.length} update(s), ${toDelete.length} delete(s)`);
-
-    saveBtn.disabled = true;
-    statusDiv.innerHTML = `<span class="text-info">⏳ Saving ${toUpdate.length + toDelete.length} change(s)...</span>`;
-
-    const supplierName = document.getElementById('detailTitle').textContent.trim();
-
-    // Step 6: Save via API
-    const results = await saveMappingsWithAPI(supplierName, toUpdate, toDelete, {
-        onSuccess: (res) => {
-            hasChanges = false;
-            updateSaveButton();
-            renderSaveResults(statusDiv, res);
-            showToast('Success', `All ${res.successCount} changes saved successfully!`, 'success');
-            window.location.reload();
-        },
-        onError: (res) => {
-            renderSaveResults(statusDiv, res);
-            showToast('Partial Save', `${res.successCount} succeeded, ${res.failureCount} failed.`, 'warning');
-            saveBtn.disabled = false;
-        }
-    });
-}
 
 // ============================================================
 // DELETE SUPPLIER
