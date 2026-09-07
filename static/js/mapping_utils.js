@@ -476,14 +476,10 @@ async function saveMappings() {
         return;
     }
 
-    console.log('📌 Supplier Name:', supplierName);
-
     // ============================================================
     // Step 2: Get page data
     // ============================================================
     const pageData = getPageData();
-    console.log('📌 Page Data:', pageData);
-
     // ============================================================
     // Step 3: Determine source fields
     // ============================================================
@@ -493,11 +489,9 @@ async function saveMappings() {
     if (pageData?.sourceFields && pageData.sourceFields.length > 0) {
         // Edit page: source_fields from backend
         sourceFields = pageData.sourceFields;
-        console.log('📌 Using source_fields from backend:', sourceFields);
     } else if (parsedFileColumns && parsedFileColumns.length > 0) {
         // Add page: source_fields from parsed file
         sourceFields = parsedFileColumns;
-        console.log('📌 Using parsedFileColumns:', sourceFields);
     } else {
         // Fallback: try to get from data attribute
         const sourceFieldsEl = document.getElementById('page-data');
@@ -506,7 +500,6 @@ async function saveMappings() {
                 const sourceData = JSON.parse(sourceFieldsEl.dataset.sourceFields || '[]');
                 if (sourceData.length > 0) {
                     sourceFields = sourceData;
-                    console.log('📌 Using source_fields from data attribute:', sourceFields);
                 }
             } catch (e) {
                 console.warn('Could not parse source_fields from data attribute');
@@ -518,21 +511,18 @@ async function saveMappings() {
     // Step 4: Collect current state from UI
     // ============================================================
     const currentState = collectMappingsFromUI();
-    console.log('📌 Current State:', currentState);
 
     // ============================================================
     // Step 5: Ensure initialMappings exists
     // ============================================================
     if (!initialMappings || Object.keys(initialMappings).length === 0) {
         initialMappings = JSON.parse(JSON.stringify(currentState));
-        console.log('⚠️ initialMappings was empty – set to currentState');
     }
 
     // ============================================================
     // Step 6: Detect changes
     // ============================================================
     const changes = detectChanges(currentState, initialMappings);
-    console.log('📌 Changes detected:', changes);
 
     if (changes.length === 0) {
         statusDiv.innerHTML = '<span class="text-info">ℹ️ No changes to save.</span>';
@@ -564,7 +554,6 @@ async function saveMappings() {
         prepopulated_value: state.prepopulated_value || ''
     }));
 
-    console.log(`📦 Total mappings to save: ${mappingList.length}`);
 
     if (mappingList.length === 0) {
         statusDiv.innerHTML = '<span class="text-warning">⚠️ No valid mappings to save.</span>';
@@ -598,9 +587,6 @@ async function saveMappings() {
         is_new_supplier: isNewSupplierPage()
     };
 
-    console.log('📦 Sending payload:', JSON.stringify(payload, null, 2));
-    console.log('📌 source_fields:', sourceFields);
-    console.log('📌 is_new_supplier:', payload.is_new_supplier);
 
     // ============================================================
     // Step 11: Send to backend
@@ -617,7 +603,6 @@ async function saveMappings() {
             body: JSON.stringify(payload)
         });
 
-        console.log('📌 Response status:', response.status);
 
         if (!response.ok) {
             let errorMessage = `HTTP ${response.status}`;
@@ -636,7 +621,6 @@ async function saveMappings() {
         }
 
         const result = await response.json();
-        console.log('✅ Save successful:', result);
 
         hasChanges = false;
         updateSaveButton();

@@ -377,8 +377,6 @@ function buildMappingUI(targetCols, fileCols) {
 
     updateMappingStatus();
     updateStepStates();
-
-    console.log('✅ buildMappingUI completed with', sortedTargetCols.length, 'fields');
 }
 
 // ============================================================

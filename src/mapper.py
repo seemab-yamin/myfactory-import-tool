@@ -110,26 +110,8 @@ class FieldMapper:
                 - prepopulated_value: str or None
         """
 
-        print("=" * 70)
-        print("🔍 SAVE_MAPPINGS DEBUG START")
-        print("=" * 70)
-        print(f"📌 supplier_name: {supplier_name}")
-        print(f"📌 is_new_supplier: {is_new_supplier}")
-        print(f"📌 incoming source_fields: {source_fields}")
-        print(
-            f"📌 incoming source_fields count: {len(source_fields) if source_fields else 0}"
-        )
-        print(f"📌 incoming mappings count: {len(mappings) if mappings else 0}")
-
-        if mappings and len(mappings) > 0:
-            print(f"📌 First 3 incoming mappings: {mappings[:3]}")
-        else:
-            print("⚠️ incoming mappings is empty or None")
-        print("=" * 70)
-
         with local_session() as session:
             if is_new_supplier:
-                print("🔍 Creating NEW supplier...")
 
                 sup = Supplier(
                     name=supplier_name,
@@ -140,11 +122,6 @@ class FieldMapper:
                 session.flush()
                 supplier_id = sup.id
 
-                print(f"✅ Created new supplier with ID: {supplier_id}")
-                print(f"✅ Supplier name: {sup.name}")
-                print(f"✅ source_fields: {sup.source_fields}")
-                print(f"✅ mappings count: {len(sup.mappings) if sup.mappings else 0}")
-
                 logger.info(
                     f"Created mapping: name={supplier_name}, "
                     f"source_fields={len(source_fields)}, "
@@ -152,59 +129,35 @@ class FieldMapper:
                 )
 
             else:
-                print("🔍 Updating EXISTING supplier...")
-                print(f"🔍 Looking for supplier: {supplier_name}")
-
                 # ✅ Use different variable names to avoid confusion
                 existing = self._get_supplier_id(supplier_name)
 
                 # ✅ Check if supplier exists
                 if existing is None or existing[0] is None:
-                    print(f"❌ Supplier '{supplier_name}' not found!")
                     raise ValueError(f"Supplier '{supplier_name}' not found")
 
                 # ✅ Unpack safely
                 (
                     existing_id,
-                    existing_name,
-                    existing_updated_at,
-                    existing_created_at,
-                    existing_mappings,
-                    existing_source_fields,
+                    _,
+                    _,
+                    _,
+                    _,
+                    _,
                 ) = existing
-
-                print(f"🔍 _get_supplier_id returned: supplier_id={existing_id}")
-                print(f"✅ Found supplier: {existing_name} (ID: {existing_id})")
-                print(f"📌 BEFORE update - source_fields: {existing_source_fields}")
-                print(
-                    f"📌 BEFORE update - mappings count: {len(existing_mappings) if existing_mappings else 0}"
-                )
-                print(f"📌 BEFORE update - updated_at: {existing_updated_at}")
 
                 # ✅ Get the supplier object for update
                 sup = session.query(Supplier).filter(Supplier.id == existing_id).first()
 
                 if sup is None:
-                    print(f"❌ Supplier with ID {existing_id} not found in session!")
                     raise ValueError(f"Supplier with ID {existing_id} not found")
 
                 # ✅ Update fields
-                print(f"📌 Setting source_fields to: {source_fields}")
                 sup.source_fields = source_fields
 
-                print(f"📌 Setting mappings to: {mappings}")
                 sup.mappings = mappings
-
                 sup.updated_at = datetime.utcnow()
-
                 supplier_id = sup.id  # Ensure supplier_id is set for return
-
-                print(f"📌 AFTER update - source_fields: {sup.source_fields}")
-                print(
-                    f"📌 AFTER update - mappings count: {len(sup.mappings) if sup.mappings else 0}"
-                )
-                print(f"📌 AFTER update - updated_at: {sup.updated_at}")
-
                 logger.info(
                     f"Updated mapping: name={supplier_name}, "
                     f"source_fields={len(source_fields)}, "
@@ -212,35 +165,16 @@ class FieldMapper:
                 )
 
             # ✅ Commit
-            print("🔍 Committing to database...")
             try:
                 session.commit()
-                print("✅ Commit successful!")
-
                 # ✅ Refresh to verify
                 session.refresh(sup)
-                print(f"🔍 AFTER REFRESH - source_fields: {sup.source_fields}")
-                print(
-                    f"🔍 AFTER REFRESH - mappings count: {len(sup.mappings) if sup.mappings else 0}"
-                )
-                print(f"🔍 AFTER REFRESH - updated_at: {sup.updated_at}")
-
             except Exception as e:
-                print(f"❌ Commit failed: {e}")
                 session.rollback()
                 raise e
-
             # ✅ Clear caches
-            print("🔍 Clearing caches...")
             self._cache.clear()
             self._supplier_cache.clear()
-            print("✅ Caches cleared")
-
-            print("=" * 70)
-            print("🔍 SAVE_MAPPINGS DEBUG END")
-            print(f"📌 Returning: name={sup.name}")
-            print("=" * 70 + "\n")
-
             return sup, supplier_id
 
     def delete_supplier(self, supplier_id: int) -> bool:
@@ -406,13 +340,11 @@ class FieldMapper:
 
     def _get_supplier_id(self, supplier_name: str):
         """Get supplier by name."""
-        print(f"🔍 _get_supplier_id called with: {supplier_name}")
 
         with local_session() as session:
             sup = session.query(Supplier).filter(Supplier.name == supplier_name).first()
 
             if sup:
-                print(f"✅ Found supplier: {sup.name} (ID: {sup.id})")
                 return (
                     sup.id,
                     sup.name,
@@ -422,7 +354,6 @@ class FieldMapper:
                     sup.source_fields,
                 )
             else:
-                print(f"❌ Supplier '{supplier_name}' not found in database")
                 return None
 
     def _get_or_create_supplier(

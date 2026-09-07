@@ -10,7 +10,6 @@ function renderMappingUI() {
     }
 
     const data = getPageData();
-    console.log('📦 Page data:', data);
     if (!data) {
         tbody.innerHTML = `<tr><td colspan="5" class="text-center text-danger">Failed to load data</td></tr>`;
         return;
@@ -22,8 +21,6 @@ function renderMappingUI() {
     // Each mapping has: target_field_id, target_field_name, source_field, is_mandatory, prepopulated_value
     const mappingsList = supplierMappings || [];
 
-    console.log('📌 Mappings list:', mappingsList);
-    console.log('📌 Source fields:', sourceFields);
 
     if (mappingsList.length === 0) {
         tbody.innerHTML = `

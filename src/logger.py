@@ -217,25 +217,3 @@ def get_default_logger() -> logging.Logger:
 
 # Initialize default logger
 default_logger = get_default_logger()
-
-
-# === Example usage ===
-if __name__ == "__main__":
-    # Test logger
-    logger = setup_logger("test", "DEBUG")
-
-    logger.debug("This is a debug message")
-    logger.info("This is an info message")
-    logger.warning("This is a warning message")
-    logger.error("This is an error message")
-
-    # Test with extra fields
-    logger.info("User action", extra={"extra": {"user_id": 123, "action": "login"}})
-
-    # Test exception
-    try:
-        raise ValueError("Test exception")
-    except Exception as e:
-        logger.exception("An error occurred")
-
-    print(f"\nLog file: {LOG_DIR / 'test_20260825.log'}")
