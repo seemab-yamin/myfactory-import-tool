@@ -7,7 +7,7 @@ import pandas as pd
 
 from src.db import local_session
 from src.logger import get_logger
-from src.models import MappingConfig, Supplier, TargetField
+from src.models import Supplier, TargetField
 
 logger = get_logger(__name__)
 
@@ -92,71 +92,56 @@ class FieldMapper:
             )
             return exists
 
-    def save_mapping(
+    def save_mappings(
         self,
         supplier_name: str,
-        source_field: str,
-        target_field_id: int,
-        is_active: bool = True,
-        is_mandatory: bool = False,
-        prepopulated_value: Optional[str] = None,
-    ) -> Tuple[int, MappingConfig]:
+        source_fields: List[str],
+        mappings: List[dict],
+        is_new_supplier: bool = False,
+    ):
         """
-        Save a single mapping.
+        Save a mappings for a supplier.
 
         Args:
             supplier_name: Name of the supplier (will be resolved to ID)
-            source_field: Source field name (from CSV)
-            target_field_id: ID of the target field (database column)
-            is_active: Whether this mapping is active
-            is_mandatory: Whether this field is required for import
-            prepopulated_value: Optional value to prepopulate the target field
-
-        Returns:
-            Tuple of (supplier_id, MappingConfig) - the supplier ID and the created/updated mapping
+            source_fields: List of source field names (from CSV)
+            mappings: List of dictionaries with keys:
+                - source_field: str
+                - target_field: str (field name)
+                - target_field_id: int
+                - is_mandatory: bool
+                - is_active: bool
+                - prepopulated_value: str or None
         """
 
-        # ✅ Resolve supplier name to ID (using cached helper)
-        supplier_id = self._get_or_create_supplier(supplier_name)
-
         with local_session() as session:
-            # ✅ Use supplier_id in the filter
-            existing = (
-                session.query(MappingConfig)
-                .filter(
-                    MappingConfig.supplier_id == supplier_id,
-                    MappingConfig.target_field_id == target_field_id,
+            if is_new_supplier:
+                sup = Supplier(
+                    name=supplier_name,
+                    source_fields=source_fields,
+                    mappings=mappings,
                 )
-                .first()
-            )
-
-            if existing:
-                existing.source_field = source_field
-                existing.target_field_id = target_field_id
-                existing.is_active = is_active
-                existing.is_mandatory = is_mandatory
-                existing.prepopulated_value = prepopulated_value
-                mapping = existing
-                logger.info(f"Updated mapping: {source_field} -> {target_field_id}")
+                session.add(sup)
+                session.flush()  # Flush to get the ID
+                supplier_id = sup.id
+                logger.info(
+                    f"Created mapping: name={supplier_name}, source_fields={source_fields}"
+                )
             else:
-                mapping = MappingConfig(
-                    supplier_id=supplier_id,
-                    source_field=source_field,
-                    target_field_id=target_field_id,
-                    is_active=is_active,
-                    is_mandatory=is_mandatory,
-                    prepopulated_value=prepopulated_value,
+                # ✅ Resolve supplier name to ID (using cached helper)
+                sup, supplier_id = self._get_supplier_id(supplier_name)
+                # ✅ Use supplier_id in the filter
+                sup.source_fields = source_fields
+                sup.mappings = mappings
+                sup.updated_at = datetime.utcnow()
+                logger.info(
+                    f"Updated mapping: name={supplier_name}, source_fields={source_fields}"
                 )
-                session.add(mapping)
-                logger.info(f"Created mapping: {source_field} -> {target_field_id}")
 
             session.commit()
             self._cache.clear()
             self._supplier_cache.clear()
-            print(
-                f"TODO: save_mapping({supplier_name}, {source_field}, {target_field_id}) -> {mapping}"
-            )
-            return supplier_id, mapping
+            return sup, supplier_id
 
     def delete_supplier(self, supplier_id: int) -> bool:
         """
@@ -639,25 +624,25 @@ class FieldMapper:
         if supplier_name in self._supplier_cache:
             return self._supplier_cache[supplier_name]
         with local_session() as session:
-            supplier = (
-                session.query(Supplier).filter(Supplier.name == supplier_name).first()
-            )
-            supplier_id = supplier.id if supplier else None
+            sup = session.query(Supplier).filter(Supplier.name == supplier_name).first()
+            supplier_id = sup.id if sup else None
             self._supplier_cache[supplier_name] = supplier_id
-            return supplier_id
+            return sup, supplier_id
 
-    def _get_or_create_supplier(self, supplier_name: str) -> int:
+    def _get_or_create_supplier(
+        self, supplier_name: str, source_fields: List[str] = None
+    ) -> Tuple[Supplier, int]:
         """Get supplier ID, or create a new supplier if it doesn't exist."""
-        supplier_id = self._get_supplier_id(supplier_name)
+        sup, supplier_id = self._get_supplier_id(supplier_name)
         if supplier_id is not None:
-            return supplier_id
+            return sup, supplier_id
 
         with local_session() as session:
-            supplier = Supplier(name=supplier_name, source_fields=[])
-            session.add(supplier)
+            sup = Supplier(name=supplier_name, source_fields=source_fields)
+            session.add(sup)
             session.commit()
-            self._supplier_cache[supplier_name] = supplier.id
-            return supplier.id
+            self._supplier_cache[supplier_name] = sup.id
+            return sup, sup.id
 
 
 # ========== Singleton Accessor ==========

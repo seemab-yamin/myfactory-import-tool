@@ -9,14 +9,12 @@ from sqlalchemy import (
     JSON,
     Boolean,
     DateTime,
-    ForeignKey,
     Integer,
     String,
     Text,
     UniqueConstraint,
 )
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, relationship
-
+from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
@@ -36,7 +34,7 @@ class Supplier(Base):
     source_fields: Mapped[Optional[List[str]]] = mapped_column(
         JSON, nullable=True, default=[]
     )
-
+    mappings: Mapped[JSON] = mapped_column(JSON, nullable=True, default={})
     created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
@@ -88,9 +86,6 @@ class TargetField(Base):
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
 
-    # relation
-    mapping_config = relationship("MappingConfig", back_populates="target_field")
-
     def __repr__(self) -> str:
         return f"<TargetField(table={self.table_name}, column={self.field_name}, type={self.data_type})>"
 
@@ -127,75 +122,6 @@ class TargetField(Base):
                 str(field_info.get("default")) if field_info.get("default") else None
             ),
         )
-
-
-class MappingConfig(Base):
-    """Supplier-to-table field mapping configuration."""
-
-    __tablename__ = "mapping_config"
-    __table_args__ = (
-        UniqueConstraint("supplier_id", "target_field_id", name="uq_supplier_source"),
-    )
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-
-    # ✅ Replace supplier_name with supplier_id (FK)
-    supplier_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("suppliers.id"), nullable=False
-    )
-    source_field: Mapped[str] = mapped_column(String(100), nullable=False)
-    target_field_id: Mapped[int] = mapped_column(
-        Integer, ForeignKey("target_fields.id"), nullable=True
-    )
-    target_field = relationship("TargetField", back_populates="mapping_config")
-
-    is_active: Mapped[bool] = mapped_column(Boolean, default=True)
-    is_mandatory: Mapped[bool] = mapped_column(Boolean, default=False)
-    prepopulated_value: Mapped[Optional[str]] = mapped_column(
-        String(255), nullable=True
-    )
-
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
-
-    def __repr__(self) -> str:
-        return f"<MappingConfig(id={self.id}, supplier_id={self.supplier_id}, source={self.source_field})>"
-
-    @classmethod
-    def create_from_supplier(
-        cls,
-        supplier_id: int,
-        source_field: str,
-        target_field: Optional[TargetField] = None,
-        is_mandatory: bool = False,
-        prepopulated_value: Optional[str] = None,
-        is_active: bool = True,
-    ) -> "MappingConfig":
-        """Factory method to create a mapping for a supplier."""
-        return cls(
-            supplier_id=supplier_id,
-            source_field=source_field,
-            target_field=target_field,
-            is_mandatory=is_mandatory,
-            prepopulated_value=prepopulated_value,
-            is_active=is_active,
-        )
-
-    def to_dict(self) -> Dict[str, Any]:
-        return {
-            "id": self.id,
-            "supplier_id": self.supplier_id,
-            "supplier_name": self.supplier.name if self.supplier else None,
-            "source_field": self.source_field,
-            "target_field": self.target_field.field_name if self.target_field else None,
-            "is_active": self.is_active,
-            "is_mandatory": self.is_mandatory,
-            "prepopulated_value": self.prepopulated_value,
-            "created_at": self.created_at.isoformat() if self.created_at else None,
-            "updated_at": self.updated_at.isoformat() if self.updated_at else None,
-        }
 
 
 class ImportAudit(Base):

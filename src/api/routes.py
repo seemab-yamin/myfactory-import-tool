@@ -4,7 +4,15 @@ from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
-from fastapi import APIRouter, BackgroundTasks, File, Form, HTTPException, UploadFile
+from fastapi import (
+    APIRouter,
+    BackgroundTasks,
+    Body,
+    File,
+    Form,
+    HTTPException,
+    UploadFile,
+)
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from pydantic import BaseModel
@@ -258,15 +266,13 @@ async def api_get_mappings(supplier_id: int, active_only: bool = False):
 
 
 @router.post("/api/mappings/{supplier_name:str}")
-async def api_save_mapping(
+async def api_save_mappings(
     supplier_name: str,
-    source_field: str = Form(...),
-    target_field_id: int = Form(...),
-    is_active: bool = Form(True),
-    is_mandatory: bool = Form(False),
-    prepopulated_value: Optional[str] = Form(None),
+    source_fields: List[str] = Body(...),
+    mappings: List[dict] = Body(...),
+    is_new_supplier: bool = Body(False),
 ):
-    """Save a mapping for a supplier."""
+    """Save a mappings for a supplier."""
 
     if not ensure_configured():
         raise HTTPException(
@@ -274,24 +280,17 @@ async def api_save_mapping(
         )
 
     mapper = get_mapper()
-    supplier_id, _ = mapper.save_mapping(
+    _, supplier_id = mapper.save_mappings(
         supplier_name=supplier_name,
-        source_field=source_field,
-        target_field_id=target_field_id,
-        is_active=is_active,
-        is_mandatory=is_mandatory,
-        prepopulated_value=prepopulated_value,
+        source_fields=source_fields,
+        mappings=mappings,
+        is_new_supplier=is_new_supplier,
     )
 
     return {
         "status": "created",
         "supplier_id": supplier_id,
         "supplier_name": supplier_name,
-        "source_field": source_field,
-        "target_field_id": target_field_id,
-        "is_active": is_active,
-        "is_mandatory": is_mandatory,
-        "prepopulated_value": prepopulated_value,
     }
 
 
@@ -429,12 +428,7 @@ async def api_schema(
 @router.post("/api/parse-sample")
 async def parse_sample_file(
     file: UploadFile = File(...),
-    supplier_name: str = Form(...),
 ):
-    """
-    Parse uploaded file and return column names + preview.
-    Also saves the source fields to the supplier record.
-    """
     from io import BytesIO
 
     import pandas as pd
@@ -467,25 +461,11 @@ async def parse_sample_file(
             .to_dict(orient="records")
         )
 
-        # ✅ Save source fields to supplier
-        mapper = get_mapper()
-
-        # First, get or create the supplier
-        supplier_id = mapper._get_or_create_supplier(supplier_name)
-
-        # Then save the source fields
-        saved = mapper.save_source_fields(supplier_id, columns)
-
-        if not saved:
-            logger.warning(f"Failed to save source fields for supplier {supplier_name}")
-
         return {
             "columns": columns,
             "preview": preview,
             "row_count": len(df),
             "column_count": len(columns),
-            "supplier_id": supplier_id,
-            "source_fields_saved": saved,
         }
 
     except Exception as e:

@@ -438,13 +438,9 @@ function updateValidation(targetId) {
     }
 }
 
-
 function updateMappingStatus() {
-    const statusBadge = document.getElementById('mappingStatus');
     const saveBtn = document.getElementById('saveBtn');
-
     const totalMapped = Object.keys(currentMappings).length;
-    const totalRequired = mandatoryFields.length;
 
     const mandatoryMapped = mandatoryFields.every(id => {
         const mapping = currentMappings[id];
@@ -454,9 +450,6 @@ function updateMappingStatus() {
 
     // ✅ Save button only enabled if there are changes AND mandatory fields are valid
     const canSave = hasChanges && mandatoryMapped && totalMapped > 0;
-
-    statusBadge.textContent = `${totalMapped}/${targetColumns.length} mapped (${totalMapped}/${totalRequired} required)`;
-    statusBadge.className = `badge ${canSave ? 'bg-success' : 'bg-warning text-dark'}`;
     saveBtn.disabled = !canSave;
 }
 
@@ -528,7 +521,8 @@ async function saveMappings() {
     // ✅ Build payload matching backend signature
     const payload = {
         source_fields: parsedColumns || [],
-        mapping: mappingList
+        mappings: mappingList,
+        is_new_supplier: true
     };
 
     console.log('📦 Sending payload:', payload);
@@ -599,8 +593,6 @@ function resetForm() {
     document.getElementById('mappingArea').style.display = 'none';
     document.getElementById('noFileMessage').style.display = 'block';
     document.getElementById('saveStatus').innerHTML = '';
-    document.getElementById('mappingStatus').textContent = '0 mapped';
-    document.getElementById('mappingStatus').className = 'badge bg-warning text-dark';
     saveBtn.disabled = true;
     supplierExists = false;
     parsedColumns = [];

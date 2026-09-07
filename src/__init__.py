@@ -14,7 +14,6 @@ from src.models import (
     ImportAudit,
     ImportSettings,
     ImportStatus,
-    MappingConfig,
     Supplier,
     TargetField,
 )
@@ -44,7 +43,6 @@ __all__ = [
     "LOG_DIR",
     "LoggerAdapter",
     "LoggerManager",
-    "MappingConfig",
     "MyfactoryImporter",
     "refresh_schema_cache",
     "Supplier",
