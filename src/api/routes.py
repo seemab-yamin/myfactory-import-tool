@@ -24,6 +24,7 @@ from src.importer import get_importer, run_import
 from src.logger import get_logger
 from src.mapper import get_mapper
 from src.schema_scanner import get_scanner
+from src.services.schema_drift_service import SchemaDriftService
 
 logger = get_logger(__name__)
 
@@ -531,35 +532,20 @@ async def parse_sample_file(
 
 
 # ============================================================
-# Schema Drift Detection Endpoints
+# Schema Drift Detection
 # ============================================================
 
 
-@router.post("/api/schema/check-changes")
-async def api_check_schema_changes(apply_sync: bool = True):
-    """
-    Run schema drift detection end-to-end.
-
-    - Fetches live MSSQL schema
-    - Diffs against cached SQLite schema
-    - Writes SchemaChangeLog if drift detected
-    - Optionally syncs all suppliers (default True)
-
-    Query params:
-        apply_sync (bool): If False, detection + log only — no supplier mutation.
-
-    Returns:
-        Summary dict from detect_and_log_schema_changes().
-    """
+@router.post("/api/schema/check")
+async def api_check_schema_drift(apply_sync: bool = True):
+    """Manually trigger schema drift detection. Has side effects — POST only."""
     if not ensure_configured():
         raise HTTPException(status_code=400, detail="Database not configured.")
 
     try:
-        from src.schema_scanner import detect_and_log_schema_changes
-
-        result = detect_and_log_schema_changes(apply_sync=apply_sync)
-        return result
-
+        with local_session() as session:
+            service = SchemaDriftService(session, apply_sync=apply_sync)
+            return service.check_and_sync()
     except Exception as e:
         logger.error(f"Schema drift detection failed: {e}", exc_info=True)
         raise HTTPException(
