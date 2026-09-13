@@ -1,6 +1,6 @@
 """Dynamic field mapping for Myfactory import with CRUD operations."""
 
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
@@ -109,6 +109,17 @@ class FieldMapper:
                 - is_active: bool
                 - prepopulated_value: str or None
         """
+        # ✅ Normalize List[dict] → dict keyed by target_field_name
+        mappings_dict = {
+            m["target_field_name"]: {
+                "source_field": m.get("source_field"),
+                "is_mandatory": m.get("is_mandatory", False),
+                "is_active": m.get("is_active", True),
+                "prepopulated_value": m.get("prepopulated_value"),
+            }
+            for m in mappings
+            if m.get("target_field_name")
+        }
 
         with local_session() as session:
             if is_new_supplier:
@@ -116,7 +127,7 @@ class FieldMapper:
                 sup = Supplier(
                     name=supplier_name,
                     source_fields=source_fields,
-                    mappings=mappings,
+                    mappings=mappings_dict,
                 )
                 session.add(sup)
                 session.flush()
@@ -125,9 +136,8 @@ class FieldMapper:
                 logger.info(
                     f"Created mapping: name={supplier_name}, "
                     f"source_fields={len(source_fields)}, "
-                    f"mappings={len(mappings)}"
+                    f"mappings={len(mappings_dict)}"
                 )
-
             else:
                 # ✅ Use different variable names to avoid confusion
                 existing = self._get_supplier_id(supplier_name)
@@ -154,14 +164,13 @@ class FieldMapper:
 
                 # ✅ Update fields
                 sup.source_fields = source_fields
-
-                sup.mappings = mappings
-                sup.updated_at = datetime.utcnow()
+                sup.mappings = mappings_dict
+                sup.updated_at = datetime.now(timezone.utc)
                 supplier_id = sup.id  # Ensure supplier_id is set for return
                 logger.info(
                     f"Updated mapping: name={supplier_name}, "
                     f"source_fields={len(source_fields)}, "
-                    f"mappings={len(mappings)}"
+                    f"mappings={len(mappings_dict)}"
                 )
 
             # ✅ Commit
@@ -229,7 +238,7 @@ class FieldMapper:
                 "id": supplier.id,
                 "name": supplier.name,
                 "source_fields": supplier.source_fields or [],
-                "mappings": supplier.mappings or [],
+                "mappings": supplier.mappings or {},  # ✅ dict fallback
                 "created_at": (
                     supplier.created_at.isoformat() if supplier.created_at else None
                 ),
@@ -404,3 +413,87 @@ def get_mapper() -> FieldMapper:
     if _mapper is None:
         _mapper = FieldMapper()
     return _mapper
+
+
+def sync_supplier_json(
+    supplier: Supplier,
+    schema_diff: dict,
+) -> bool:
+    """
+    Reconcile a supplier's mappings with a schema diff.
+
+    Removes mappings for target fields that no longer exist.
+    Stamps schema_changed_flag/at if any mutation occurred.
+
+    Returns:
+        True if supplier.mappings was mutated, False otherwise.
+    """
+    # Short-circuit: no removals → nothing to do
+    removed = schema_diff.get("removed", [])
+    if not removed:
+        return False
+
+    removed_names = {f.field_name for f in removed}
+
+    # Defensive copy — SQLAlchemy JSON needs explicit reassignment
+    mappings = dict(supplier.mappings or {})
+
+    mutated = False
+    for name in removed_names:
+        if name in mappings:
+            del mappings[name]
+            mutated = True
+
+    if not mutated:
+        return False
+
+    # ✅ Explicit reassignment → triggers SQLAlchemy dirty-tracking
+    supplier.mappings = mappings
+
+    # ✅ Stamp once per drift event (idempotent guard)
+    if not supplier.schema_changed_flag:
+        supplier.schema_changed_at = datetime.now(timezone.utc)
+        supplier.schema_changed_flag = True
+
+    return True
+
+
+def sync_all_suppliers(schema_diff: dict, db_session) -> int:
+    """
+    Apply a schema diff to all suppliers in a single transaction.
+
+    - Short-circuits when no removals exist (nothing to mutate).
+    - Calls sync_supplier_json() per supplier.
+    - Commits once at the end → atomic batch.
+    - Rolls back on any error.
+
+    Args:
+        schema_diff: Output from compare_schemas()
+        db_session:  SQLAlchemy Session (caller-provided)
+
+    Returns:
+        Count of suppliers whose mappings were actually mutated.
+    """
+    # Short-circuit: no removals → no mapping mutation possible
+    if not schema_diff.get("has_changes"):
+        return 0
+    if not schema_diff.get("removed"):
+        return 0
+
+    suppliers = db_session.query(Supplier).all()
+    synced_count = 0
+
+    try:
+        for supplier in suppliers:
+            if sync_supplier_json(supplier, schema_diff):
+                synced_count += 1
+
+        db_session.commit()
+    except Exception:
+        db_session.rollback()
+        raise
+
+    logger.info(
+        f"sync_all_suppliers: {synced_count}/{len(suppliers)} suppliers mutated"
+    )
+    return synced_count
