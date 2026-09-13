@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from datetime import datetime
 from enum import Enum
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from sqlalchemy import (
@@ -15,6 +16,7 @@ from sqlalchemy import (
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+
 
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
@@ -39,6 +41,10 @@ class Supplier(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
     )
+    schema_changed_at: Mapped[Optional[datetime]] = mapped_column(
+        DateTime, nullable=True, default=None
+    )
+    schema_changed_flag: Mapped[bool] = mapped_column(Boolean, default=False)
 
     def __repr__(self) -> str:
         return f"<Supplier(id={self.id}, name={self.name})>"
@@ -50,6 +56,38 @@ class Supplier(Base):
             "source_fields": self.source_fields or [],
             "created_at": self.created_at.isoformat() if self.created_at else None,
             "updated_at": self.updated_at.isoformat() if self.updated_at else None,
+            "schema_changed_at": (
+                self.schema_changed_at.isoformat() if self.schema_changed_at else None
+            ),
+            "schema_changed_flag": self.schema_changed_flag,
+        }
+
+
+class SchemaChangeLog(Base):
+    __tablename__ = "schema_change_log"
+
+    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    checked_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
+    added_fields: Mapped[Optional[list]] = mapped_column(
+        JSON, nullable=True, default=list
+    )
+    removed_fields: Mapped[Optional[list]] = mapped_column(
+        JSON, nullable=True, default=list
+    )
+    suppliers_synced: Mapped[int] = mapped_column(Integer, default=0)
+    details: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
+
+    def __repr__(self) -> str:
+        return f"<SchemaChangeLog(id={self.id}, checked_at={self.checked_at}, synced={self.suppliers_synced})>"
+
+    def to_dict(self) -> Dict[str, Any]:
+        return {
+            "id": self.id,
+            "checked_at": self.checked_at.isoformat() if self.checked_at else None,
+            "added_fields": self.added_fields or [],
+            "removed_fields": self.removed_fields or [],
+            "suppliers_synced": self.suppliers_synced,
+            "details": self.details,
         }
 
 
@@ -328,7 +366,3 @@ def get_table_name(table_name: Optional[str] = None) -> str:
 
     config = get_config_manager()
     return config.get().default_products_table
-
-
-# === Import for convenience ===
-from pathlib import Path
