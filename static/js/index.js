@@ -179,7 +179,7 @@ async function uploadFile() {
   // Build FormData
   const formData = new FormData();
   formData.append('file', fileInput.files[0]);
-  formData.append('supplier', supplierId);
+  formData.append('supplier_id', supplierId);
   formData.append('dry_run', dryRun);
   formData.append('batch_size', batchSize);
 

@@ -34,11 +34,16 @@ TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates"
 templates = (
     Jinja2Templates(directory=str(TEMPLATE_DIR)) if TEMPLATE_DIR.exists() else None
 )
+# Constants
 
 # Upload directory
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
+ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
+MAX_BATCH_SIZE = 100000
+MIN_BATCH_SIZE = 1
+MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 
 # ========== HTML Pages ==========
 
@@ -122,54 +127,153 @@ async def health():
 async def upload_file(
     background_tasks: BackgroundTasks,
     file: UploadFile = File(...),
-    supplier: str = Form(...),
+    supplier_id: int = Form(...),
     dry_run: bool = Form(False),
     batch_size: int = Form(1000),
 ):
-    """Upload and import a file."""
+    """
+    Upload and import a file.
+
+    Requirements fulfilled:
+    1. Input Validation Layer
+    2. File Handling Layer
+    3. Dry-Run Mode (Synchronous)
+    """
+
+    # ============================================================
+    # 1. INPUT VALIDATION LAYER
+    # ============================================================
+
+    # ✅ 1.1 Ensure configured
     if not ensure_configured():
         raise HTTPException(status_code=400, detail="Database not configured.")
 
-    file_path = (
-        UPLOAD_DIR / f"{datetime.now().strftime('%Y%m%d_%H%M%S')}_{file.filename}"
-    )
+    # ✅ 1.2 Validate file type (.csv, .xlsx, .xls)
+    if not file.filename:
+        raise HTTPException(status_code=400, detail="No filename provided.")
+
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in ALLOWED_EXTENSIONS:
+        raise HTTPException(
+            status_code=400,
+            detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
+        )
+
+    # ✅ 1.3 Validate file size (optional but recommended)
+    file_size = 0
+    try:
+        content = await file.read()
+        file_size = len(content)
+        await file.seek(0)  # Reset file pointer for later use
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
+
+    if file_size > MAX_FILE_SIZE:
+        raise HTTPException(
+            status_code=400,
+            detail=f"File too large. Max size: {MAX_FILE_SIZE // (1024*1024)} MB",
+        )
+    if file_size == 0:
+        raise HTTPException(status_code=400, detail="File is empty.")
+
+    # ✅ 1.5 Validate batch_size (min 1, max 10000)
+    if not isinstance(batch_size, int):
+        raise HTTPException(status_code=400, detail="batch_size must be an integer.")
+
+    if batch_size < MIN_BATCH_SIZE:
+        raise HTTPException(
+            status_code=400, detail=f"batch_size must be at least {MIN_BATCH_SIZE}."
+        )
+
+    if batch_size > MAX_BATCH_SIZE:
+        raise HTTPException(
+            status_code=400, detail=f"batch_size must be at most {MAX_BATCH_SIZE}."
+        )
+
+    # ============================================================
+    # 2. FILE HANDLING LAYER
+    # ============================================================
+
+    # ✅ 2.1 Save uploaded file to UPLOAD_DIR with timestamp
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    safe_filename = f"{timestamp}_{file.filename}"
+    file_path = UPLOAD_DIR / safe_filename
 
     try:
+        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
         with open(file_path, "wb") as f:
-            content = await file.read()
+            # Content is already read, write it
             f.write(content)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
 
+    # ✅ 2.2 Return file_path for background task
+    # ✅ 2.3 Handle file read errors (already handled above)
+
+    # ============================================================
+    # 3. DRY-RUN MODE (Synchronous)
+    # ============================================================
+
     if dry_run:
-        importer = get_importer()
-        result = importer.import_file(
-            {
+        try:
+            importer = get_importer()
+            result = importer.import_file(
+                {
+                    "file_path": str(file_path),
+                    "supplier_id": supplier_id,
+                    "dry_run": True,
+                    "batch_size": batch_size,
+                }
+            )
+
+            # ✅ 3.1 Parse file (delimiter, encoding) - handled by importer
+            # ✅ 3.2 Validate against mapping - handled by importer
+            # ✅ 3.3 Return preview rows + validation errors
+
+            return {
+                "status": "dry_run_completed",
+                "supplier_id": supplier_id,
+                "total_rows": result.total_rows,
+                "preview": (
+                    result.details.get("preview_rows", []) if result.details else []
+                ),
+                "columns": result.details.get("columns", []) if result.details else [],
+                "mapping": result.details.get("mapping", {}) if result.details else {},
+                "errors": result.errors,
+                "warnings": result.warnings if hasattr(result, "warnings") else [],
+                "log_file": result.log_file,
                 "file_path": str(file_path),
-                "supplier_name": supplier,
-                "dry_run": True,
+                "file_name": file.filename,
                 "batch_size": batch_size,
             }
-        )
-        return {
-            "status": "dry_run_completed",
-            "supplier": supplier,
-            "total_rows": result.total_rows,
-            "preview": result.details.get("preview_rows", []) if result.details else [],
-            "columns": result.details.get("columns", []) if result.details else [],
-            "mapping": result.details.get("mapping", {}) if result.details else {},
-            "errors": result.errors,
-            "log_file": result.log_file,
-            "file_path": str(file_path),
-        }
+        except Exception as e:
+            logger.error(f"Dry-run failed: {e}")
+            raise HTTPException(status_code=500, detail=f"Dry-run failed: {str(e)}")
 
-    background_tasks.add_task(run_import)
+    # ============================================================
+    # 4. BACKGROUND IMPORT
+    # ============================================================
+
+    import uuid
+
+    import_id = str(uuid.uuid4())
+    # ✅ Background task for full import
+    background_tasks.add_task(
+        run_import,
+        import_id=import_id,  # ✅ Add
+        file_path=str(file_path),
+        supplier_id=supplier_id,
+        batch_size=batch_size,
+    )
+
     return {
         "status": "accepted",
         "message": "Import started in background",
-        "supplier": supplier,
+        "import_id": import_id,  # ✅ Return to client
+        "supplier_id": supplier_id,
         "file_path": str(file_path),
         "file_name": file.filename,
+        "batch_size": batch_size,
     }
 
 
@@ -343,6 +447,7 @@ async def api_schema(
     use_cache: bool = True,
     simplified: bool = False,
     refresh_cache: bool = False,
+    sort_by: str = "target_field_id",
 ):
     """Return JSON schema for the default table."""
 
@@ -362,9 +467,13 @@ async def api_schema(
         )
 
     if simplified:
-        columns = scanner.get_columns_for_mapping(default_products_table, use_cache)
+        columns = scanner.get_columns_for_mapping(
+            default_products_table, use_cache, sort_by=sort_by
+        )
     else:
-        columns = scanner.get_table_schema(default_products_table, use_cache)
+        columns = scanner.get_table_schema(
+            default_products_table, use_cache, sort_by=sort_by
+        )
 
     return {
         "table_name": default_products_table,

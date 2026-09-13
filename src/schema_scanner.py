@@ -18,7 +18,10 @@ class SchemaScanner:
         self._cache: Dict[str, List[Dict[str, Any]]] = {}
 
     def get_table_schema(
-        self, table_name: str = "tdProducts", use_cache: bool = True
+        self,
+        table_name: str = "tdProducts",
+        use_cache: bool = True,
+        sort_by: Optional[str] = None,
     ) -> List[Dict[str, Any]]:
         """
         Get full schema information for a table.
@@ -32,12 +35,15 @@ class SchemaScanner:
         """
 
         cache_key = f"schema_{table_name}"
-        if use_cache and cache_key in self._cache:
+        if use_cache and cache_key in self._cache and sort_by is None:
             logger.debug(f"Returning cached schema for {table_name}")
             return self._cache[cache_key]
 
         try:
             columns = self.db.get_table_columns(table_name, use_cache)
+            print(f"TODO: {sort_by} {columns[0]=}")  # TODO: Remove debug print
+            if sort_by in columns[0]:
+                columns.sort(key=lambda x: x[sort_by])
             self._cache[cache_key] = columns
             logger.info(f"Scanned {len(columns)} columns from {table_name}")
             return columns
@@ -46,7 +52,10 @@ class SchemaScanner:
             return []
 
     def get_columns_for_mapping(
-        self, table_name: str = "tdProducts", use_cache: bool = True
+        self,
+        table_name: str = "tdProducts",
+        use_cache: bool = True,
+        sort_by: Optional[str] = None,
     ) -> List[Dict[str, str]]:
         """
         Get simplified column list for mapping UI.
@@ -56,7 +65,7 @@ class SchemaScanner:
             Example: [{"name": "ProductNumber", "type": "varchar"}, ...]
         """
 
-        columns = self.get_table_schema(table_name, use_cache)
+        columns = self.get_table_schema(table_name, use_cache, sort_by=sort_by)
         return [
             {
                 "name": col["name"],
