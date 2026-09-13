@@ -1,0 +1,1 @@
+"""Service layer — encapsulated business operations."""

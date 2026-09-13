@@ -2,13 +2,11 @@
 Provides simplified schema information for the mapping UI.
 """
 
-from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from src.db import get_db_manager, local_session
 from src.logger import get_logger
-from src.mapper import sync_all_suppliers
-from src.models import SchemaChangeLog, TargetField
+from src.models import TargetField
 
 logger = get_logger(__name__)
 
@@ -337,160 +335,18 @@ def detect_and_log_schema_changes(
     apply_sync: bool = True,
 ) -> dict:
     """
-    End-to-end schema drift detection.
+    Thin wrapper around SchemaDriftService.check_and_sync().
 
-    Pipeline:
-        1. Fetch live MSSQL schema (via get_live_tdproducts_schema)
-        2. Fetch cached SQLite schema (via DatabaseManager.get_table_columns)
-        3. Diff via compare_schemas()
-        4. If drift:
-             a. INSERT SchemaChangeLog
-             b. Optionally sync_all_suppliers()
-
-    Args:
-        table_name:  Target table (default tdProducts)
-        apply_sync:  If True, mutate supplier JSONs. If False, dry-run
-                     detection only (still writes SchemaChangeLog).
-
-    Returns:
-        {
-            "checked_at":        ISO timestamp,
-            "table_name":        str,
-            "has_changes":       bool,
-            "added_count":       int,
-            "removed_count":     int,
-            "changed_count":     int,
-            "suppliers_synced":  int,
-            "log_id":            int | None,
-            "added":             [field names],
-            "removed":           [field names],
-            "changed":           [{field_name, changes}, ...],
-        }
+    Kept for backward compatibility with existing callers
+    (API routes, tests). New code should use SchemaDriftService directly.
     """
-    db = get_db_manager()
 
-    # ---- 1. Live (MSSQL) ----
-    live_fields: List[TargetField] = get_live_tdproducts_schema()
-    if not live_fields:
-        logger.warning("detect_and_log: live schema empty — MSSQL unreachable?")
-        return _empty_result(table_name, reason="live_schema_empty")
-
-    # ---- 2. Cached (SQLite) ----
-    cached_raw = db.get_table_columns(table_name, use_cache=True)
-    if not cached_raw:
-        logger.warning("detect_and_log: cache empty — run a refresh first")
-        return _empty_result(table_name, reason="cache_empty")
-
-    # Adapt cache dicts → TargetField instances for compare_schemas
-    cached_fields = [
-        TargetField(
-            table_name=table_name,
-            field_name=c["name"],
-            data_type=c["type"],
-            max_length=c.get("max_length"),
-            is_nullable=c.get("nullable", True),
-            is_identity=c.get("identity", False),
-        )
-        for c in cached_raw
-    ]
-
-    # ---- 3. Diff ----
-    diff = compare_schemas(cached_fields, live_fields)
-
-    now = datetime.now(timezone.utc)
-
-    if not diff["has_changes"]:
-        logger.info("detect_and_log: no schema drift")
-        return {
-            "checked_at": now.isoformat(),
-            "table_name": table_name,
-            "has_changes": False,
-            "added_count": 0,
-            "removed_count": 0,
-            "changed_count": 0,
-            "suppliers_synced": 0,
-            "log_id": None,
-            "added": [],
-            "removed": [],
-            "changed": [],
-        }
-
-    # ---- 4a. Write SchemaChangeLog + sync suppliers ----
-    added_names = [f.field_name for f in diff["added"]]
-    removed_names = [f.field_name for f in diff["removed"]]
-
-    suppliers_synced = 0
-    log_id = None
+    from src.services.schema_drift_service import SchemaDriftService
 
     with local_session() as session:
-        # Sync suppliers first (same transaction as log for atomicity)
-        if apply_sync and removed_names:
-            suppliers_synced = sync_all_suppliers(diff, session)
-        else:
-            session.commit()  # ensure no stale state
-
-        log = SchemaChangeLog(
-            checked_at=now,
-            added_fields=[
-                {"field_name": f.field_name, "data_type": f.data_type}
-                for f in diff["added"]
-            ],
-            removed_fields=[
-                {"field_name": f.field_name, "data_type": f.data_type}
-                for f in diff["removed"]
-            ],
-            suppliers_synced=suppliers_synced,
-            details=(
-                f"added={len(added_names)} "
-                f"removed={len(removed_names)} "
-                f"changed={len(diff['changed'])} "
-                f"synced={suppliers_synced}"
-            ),
+        service = SchemaDriftService(
+            db_session=session,
+            table_name=table_name,
+            apply_sync=apply_sync,
         )
-        session.add(log)
-        session.flush()
-        log_id = log.id
-        session.commit()
-
-    logger.info(
-        f"detect_and_log: drift detected — "
-        f"added={len(added_names)} removed={len(removed_names)} "
-        f"changed={len(diff['changed'])} synced={suppliers_synced}"
-    )
-
-    return {
-        "checked_at": now.isoformat(),
-        "table_name": table_name,
-        "has_changes": True,
-        "added_count": len(added_names),
-        "removed_count": len(removed_names),
-        "changed_count": len(diff["changed"]),
-        "suppliers_synced": suppliers_synced,
-        "log_id": log_id,
-        "added": added_names,
-        "removed": removed_names,
-        "changed": diff["changed"],
-    }
-
-
-# ============================================================
-# Internal helper
-# ============================================================
-
-
-def _empty_result(table_name: str, reason: str = "") -> dict:
-    """Uniform empty result shape."""
-    return {
-        "checked_at": datetime.now(timezone.utc).isoformat(),
-        "table_name": table_name,
-        "has_changes": False,
-        "added_count": 0,
-        "removed_count": 0,
-        "changed_count": 0,
-        "suppliers_synced": 0,
-        "log_id": None,
-        "added": [],
-        "removed": [],
-        "changed": [],
-        "reason": reason,
-    }
+        return service.check_and_sync()
