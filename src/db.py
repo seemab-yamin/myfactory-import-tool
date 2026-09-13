@@ -277,6 +277,14 @@ class DatabaseManager:
 
             result = []
             for col in columns:
+                # ✅ Extract max_length from type or top-level
+                max_length = col.get("length")
+                if max_length is None:
+                    # Fall back to type object's length attribute
+                    try:
+                        max_length = getattr(col["type"], "length", None)
+                    except Exception:
+                        max_length = None
                 result.append(
                     {
                         "name": col["name"],
@@ -285,7 +293,8 @@ class DatabaseManager:
                         "default": (
                             str(col.get("default")) if col.get("default") else None
                         ),
-                        "autoincrement": col.get("autoincrement", False),
+                        "max_length": max_length,
+                        "is_identity": col.get("autoincrement", False),
                     }
                 )
 
@@ -334,6 +343,7 @@ class DatabaseManager:
                             "target_field_id": c.id,
                             "name": c.field_name,
                             "type": c.data_type,
+                            "max_length": c.max_length,
                             "nullable": c.is_nullable,
                             "identity": c.is_identity,
                         }
@@ -373,7 +383,8 @@ class DatabaseManager:
                         field_name=col["name"],
                         data_type=col["type"],
                         is_nullable=col.get("nullable", True),
-                        is_identity=col.get("autoincrement", False),
+                        is_identity=col.get("is_identity", False),
+                        max_length=col.get("max_length"),
                         default_value=col.get("default"),
                     )
                     session.add(product_col)
