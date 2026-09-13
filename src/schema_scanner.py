@@ -302,3 +302,28 @@ def _is_type_narrowed(old_type: Optional[str], new_type: Optional[str]) -> bool:
 def _base_type(data_type: str) -> str:
     """Extract base type from full type string, e.g. 'NVARCHAR(30) COLLATE ...' → 'NVARCHAR'."""
     return data_type.split("(")[0].split()[0].strip().upper()
+
+
+def get_live_tdproducts_schema() -> List[TargetField]:
+    """Fetch live tdProducts schema from MSSQL. Read-only — does not touch cache."""
+    from sqlalchemy import inspect
+    from src.db import get_db_manager
+    from src.models import TargetField
+
+    db = get_db_manager()
+    engine = db.get_myfactory_engine()
+
+    if engine is None:
+        logger.warning("⚠️ MSSQL engine unavailable — returning empty live schema")
+        return []
+
+    try:
+        inspector = inspect(engine)
+        raw_columns = inspector.get_columns("tdProducts")
+        logger.info(f"🔍 Fetched {len(raw_columns)} live columns from tdProducts")
+
+        return [TargetField.from_inspector("tdProducts", col) for col in raw_columns]
+
+    except Exception as e:
+        logger.error(f"❌ Failed to fetch live tdProducts schema: {e}")
+        return []
