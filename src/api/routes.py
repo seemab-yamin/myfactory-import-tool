@@ -528,3 +528,68 @@ async def parse_sample_file(
     except Exception as e:
         logger.error(f"Parse error: {e}")
         raise HTTPException(status_code=400, detail=f"Failed to parse file: {str(e)}")
+
+
+# ============================================================
+# Schema Drift Detection Endpoints
+# ============================================================
+
+
+@router.post("/api/schema/check-changes")
+async def api_check_schema_changes(apply_sync: bool = True):
+    """
+    Run schema drift detection end-to-end.
+
+    - Fetches live MSSQL schema
+    - Diffs against cached SQLite schema
+    - Writes SchemaChangeLog if drift detected
+    - Optionally syncs all suppliers (default True)
+
+    Query params:
+        apply_sync (bool): If False, detection + log only — no supplier mutation.
+
+    Returns:
+        Summary dict from detect_and_log_schema_changes().
+    """
+    if not ensure_configured():
+        raise HTTPException(status_code=400, detail="Database not configured.")
+
+    try:
+        from src.schema_scanner import detect_and_log_schema_changes
+
+        result = detect_and_log_schema_changes(apply_sync=apply_sync)
+        return result
+
+    except Exception as e:
+        logger.error(f"Schema drift detection failed: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=500,
+            detail=f"Schema drift detection failed: {str(e)}",
+        )
+
+
+@router.get("/api/schema/change-log")
+async def api_schema_change_log(limit: int = 20):
+    """
+    Return recent SchemaChangeLog entries (newest first).
+
+    Query params:
+        limit (int): Max rows to return (default 20).
+    """
+    if not ensure_configured():
+        raise HTTPException(status_code=400, detail="Database not configured.")
+
+    from src.db import local_session
+    from src.models import SchemaChangeLog
+
+    with local_session() as session:
+        logs = (
+            session.query(SchemaChangeLog)
+            .order_by(SchemaChangeLog.checked_at.desc())
+            .limit(limit)
+            .all()
+        )
+        return {
+            "total": len(logs),
+            "logs": [log.to_dict() for log in logs],
+        }
