@@ -14,6 +14,104 @@
         </div>
       </div>
       <div class="card-body">
+        {# ✅ Schema drift banner — shown only when drift was detected on page load #}
+        {% if schema_changed %}
+          <div class="alert alert-warning alert-dismissible fade show" role="alert">
+            <h5 class="alert-heading mb-2">
+              <i class="bi bi-exclamation-triangle-fill"></i>
+              Schema Changed — Mappings Reviewed
+            </h5>
+            <p class="mb-2">
+              The <strong>tdProducts</strong> table changed since the last check. Affected suppliers have been automatically updated.
+            </p>
+
+            <ul class="mb-2">
+              <li>
+                <strong>Fields added:</strong> {{ schema_details.added_count }}
+              </li>
+              <li>
+                <strong>Fields removed:</strong> {{ schema_details.removed_count }}
+              </li>
+              <li>
+                <strong>Fields changed:</strong> {{ schema_details.changed_count }}
+              </li>
+              <li>
+                <strong>Suppliers synced:</strong> {{ schema_details.suppliers_synced }}
+              </li>
+            </ul>
+
+            {% if schema_details.added %}
+              <details class="mb-2">
+                <summary class="text-success">
+                  <strong>Added fields ({{ schema_details.added|length }})</strong>
+                </summary>
+                <ul class="mb-0">
+                  {% for name in schema_details.added %}
+                    <li>
+                      <code>{{ name }}</code>
+                    </li>
+                  {% endfor %}
+                </ul>
+              </details>
+            {% endif %}
+
+            {% if schema_details.removed %}
+              <details class="mb-2">
+                <summary class="text-danger">
+                  <strong>Removed fields ({{ schema_details.removed|length }})</strong>
+                </summary>
+                <ul class="mb-0">
+                  {% for name in schema_details.removed %}
+                    <li>
+                      <code>{{ name }}</code>
+                    </li>
+                  {% endfor %}
+                </ul>
+              </details>
+            {% endif %}
+
+            {% if schema_details.changed %}
+              <details class="mb-2">
+                <summary class="text-warning">
+                  <strong>Changed fields ({{ schema_details.changed|length }})</strong>
+                </summary>
+                <ul class="mb-0">
+                  {% for item in schema_details.changed %}
+                    <li>
+                      <code>{{ item.field_name }}</code>:<ul class="mb-0">
+                        {% for key, val in item.changes.items() %}
+                          <li>
+                            {{ key }}: <code>{{ val.old }}</code> → <code>{{ val.new }}</code>
+                          </li>
+                        {% endfor %}
+                      </ul>
+                    </li>
+                  {% endfor %}
+                </ul>
+              </details>
+            {% endif %}
+
+            <hr />
+            <p class="mb-0 small text-muted">
+              Checked at: {{ schema_details.checked_at }}
+              {% if schema_details.log_id %}
+                · Log ID: {{ schema_details.log_id }}
+              {% endif %}
+            </p>
+
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endif %}
+
+        {# ✅ Schema drift error banner (MSSQL unreachable, etc.) #}
+        {% if schema_details.error %}
+          <div class="alert alert-danger alert-dismissible fade show" role="alert">
+            <strong><i class="bi bi-x-octagon-fill"></i> Schema check failed:</strong>
+            <span>{{ schema_details.error }}</span>
+            <button type="button" class="btn-close" data-bs-dismiss="alert" aria-label="Close"></button>
+          </div>
+        {% endif %}
+
         <div id="mappingGrid" class="row g-3"></div>
       </div>
     </div>
