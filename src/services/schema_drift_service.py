@@ -37,12 +37,12 @@ class SchemaDriftService:
     # ------------------------------------------------------------
     def check_and_sync(self) -> Dict[str, Any]:
         from src.mapper import sync_all_suppliers
-        from src.schema_scanner import compare_schemas, get_live_tdproducts_schema
+        from src.schema_scanner import compare_schemas, get_live_schema_as_target_fields
 
         now = datetime.now(timezone.utc)
 
         # ---- 1. Live schema ----
-        live = get_live_tdproducts_schema()
+        live = get_live_schema_as_target_fields(self.table_name)
         if not live:
             logger.warning("Drift check: live schema empty — MSSQL unreachable?")
             return self._empty_result(now, reason="live_schema_empty")

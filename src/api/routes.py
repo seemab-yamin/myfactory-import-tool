@@ -62,11 +62,59 @@ async def index(request: Request):
 
 @router.get("/mappings-list", response_class=HTMLResponse)
 async def mappings_list_page(request: Request):
-    """Render mappings list page."""
+    """Render mappings list page.
+
+    Side effect: runs a schema drift check on page load. If MSSQL
+    is unreachable, the check silently degrades — page still renders.
+    """
+
     if not templates:
         return HTMLResponse("Templates not found.")
+
+    # ---- 1. Suppliers list (always needed) ----
+    suppliers = []
+    if ensure_configured():
+        try:
+            suppliers = get_mapper().get_all_suppliers()
+        except Exception as e:
+            logger.warning(f"Failed to fetch suppliers: {e}")
+
+    # ---- 2. Drift check (best-effort, never blocks the page) ----
+    schema_changed = False
+    schema_details: dict = {}
+
+    if ensure_configured():
+        try:
+            with local_session() as session:
+                service = SchemaDriftService(session)
+                schema_details = service.check_and_sync()
+                schema_changed = bool(schema_details.get("has_changes"))
+                print(f"TODO: Schema drift check result: {schema_details}")
+        except Exception as e:
+            logger.warning(f"Schema drift check failed on /mappings-list: {e}")
+            schema_details = {"error": str(e), "has_changes": False}
+
+    # ✅ Ensure schema_details always has the expected keys
+    schema_details.setdefault("has_changes", False)
+    schema_details.setdefault("added_count", 0)
+    schema_details.setdefault("removed_count", 0)
+    schema_details.setdefault("changed_count", 0)
+    schema_details.setdefault("suppliers_synced", 0)
+    schema_details.setdefault("added", [])
+    schema_details.setdefault("removed", [])
+    schema_details.setdefault("changed", [])
+
+    # ---- 3. Render ----
     return templates.TemplateResponse(
-        request, "mappings_list.html", {"request": request, "mapping": None}
+        request,
+        "mappings_list.html",
+        {
+            "request": request,
+            "suppliers": suppliers,
+            "schema_changed": schema_changed,
+            "schema_details": schema_details,
+            "mapping": None,  # keep for backward compat with template
+        },
     )
 
 
@@ -85,6 +133,11 @@ async def mappings_page(request: Request, supplier_id: int):
             status_code=404, detail=f"Supplier with ID {supplier_id} not found"
         )
 
+    # save as a list to preserve formatting
+    # supplier["mappings"] = [
+    #     {key: item} for key, item in supplier.get("mappings").items()
+    # ]
+    print(f"TODO: supplier.get('mappings'): {supplier.get('mappings')}")
     return templates.TemplateResponse(
         request,
         "show_mapping.html",
