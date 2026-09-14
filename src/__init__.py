@@ -24,6 +24,7 @@ from src.schema_scanner import (
     get_columns_for_mapping,
     get_scanner,
     get_table_schema,
+    get_live_schema_as_target_fields,
     refresh_schema_cache,
 )
 
@@ -33,6 +34,7 @@ __all__ = [
     "BASE_DIR",
     "get_scanner",
     "get_table_schema",
+    "get_live_schema_as_target_fields",
     "get_columns_for_mapping",
     "get_column_names",
     "get_default_logger",

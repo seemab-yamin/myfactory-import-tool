@@ -42,7 +42,9 @@ class SchemaScanner:
 
         try:
             columns = self.db.get_table_columns(table_name, use_cache)
-            print(f"TODO: {sort_by} {columns[0]=}")  # TODO: Remove debug print
+            if sort_by and columns and sort_by in columns[0]:
+                columns.sort(key=lambda x: x[sort_by])
+
             if sort_by in columns[0]:
                 columns.sort(key=lambda x: x[sort_by])
             self._cache[cache_key] = columns
@@ -50,6 +52,39 @@ class SchemaScanner:
             return columns
         except Exception as e:
             logger.error(f"Failed to scan schema for {table_name}: {e}")
+            return []
+
+    def get_live_schema_as_target_fields(
+        self,
+        table_name: str = "tdProducts",
+    ) -> List[TargetField]:
+        """
+        Fetch live schema from MSSQL, bypassing cache, as TargetField objects.
+
+        Read-only: does NOT write to SQLite cache.
+        Returns [] on failure so callers can short-circuit gracefully.
+        """
+
+        try:
+            raw_columns = self.db.get_table_columns(table_name, use_cache=False)
+            if not raw_columns:
+                logger.warning(f"No live columns returned for {table_name}")
+                return []
+
+            return [
+                TargetField(
+                    table_name=table_name,
+                    field_name=col["name"],
+                    data_type=col["type"],
+                    max_length=col.get("max_length"),
+                    is_nullable=col.get("nullable", True),
+                    is_identity=col.get("identity", False),
+                    default_value=col.get("default"),
+                )
+                for col in raw_columns
+            ]
+        except Exception as e:
+            logger.error(f"Failed to fetch live {table_name} schema: {e}")
             return []
 
     def get_columns_for_mapping(
@@ -169,6 +204,13 @@ def refresh_schema_cache(table_name: Optional[str] = None):
     return get_scanner().refresh_cache(table_name)
 
 
+def get_live_schema_as_target_fields(
+    table_name: str = "tdProducts",
+) -> List[TargetField]:
+    """Get live schema as TargetField objects."""
+    return get_scanner().get_live_schema_as_target_fields(table_name)
+
+
 def compare_schemas(
     cached_fields: List[TargetField], live_fields: List[TargetField]
 ) -> dict:
@@ -231,7 +273,6 @@ def compare_schemas(
                     "changes": diffs,
                 }
             )
-
     return {
         "added": added,
         "removed": removed,
@@ -302,32 +343,6 @@ def _is_type_narrowed(old_type: Optional[str], new_type: Optional[str]) -> bool:
 def _base_type(data_type: str) -> str:
     """Extract base type from full type string, e.g. 'NVARCHAR(30) COLLATE ...' → 'NVARCHAR'."""
     return data_type.split("(")[0].split()[0].strip().upper()
-
-
-def get_live_tdproducts_schema() -> List[TargetField]:
-    """Fetch live tdProducts schema from MSSQL. Read-only — does not touch cache."""
-    from sqlalchemy import inspect
-
-    from src.db import get_db_manager
-    from src.models import TargetField
-
-    db = get_db_manager()
-    engine = db.get_myfactory_engine()
-
-    if engine is None:
-        logger.warning("⚠️ MSSQL engine unavailable — returning empty live schema")
-        return []
-
-    try:
-        inspector = inspect(engine)
-        raw_columns = inspector.get_columns("tdProducts")
-        logger.info(f"🔍 Fetched {len(raw_columns)} live columns from tdProducts")
-
-        return [TargetField.from_inspector("tdProducts", col) for col in raw_columns]
-
-    except Exception as e:
-        logger.error(f"❌ Failed to fetch live tdProducts schema: {e}")
-        return []
 
 
 def detect_and_log_schema_changes(

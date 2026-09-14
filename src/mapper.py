@@ -111,14 +111,7 @@ class FieldMapper:
         """
         # ✅ Normalize List[dict] → dict keyed by target_field_name
         mappings_dict = {
-            m["target_field_name"]: {
-                "source_field": m.get("source_field"),
-                "is_mandatory": m.get("is_mandatory", False),
-                "is_active": m.get("is_active", True),
-                "prepopulated_value": m.get("prepopulated_value"),
-            }
-            for m in mappings
-            if m.get("target_field_name")
+            m["target_field_name"]: m for m in mappings if m.get("target_field_name")
         }
 
         with local_session() as session:

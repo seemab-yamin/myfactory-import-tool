@@ -294,7 +294,7 @@ class DatabaseManager:
                             str(col.get("default")) if col.get("default") else None
                         ),
                         "max_length": max_length,
-                        "is_identity": col.get("autoincrement", False),
+                        "is_identity": bool(col.get("autoincrement")),
                     }
                 )
 
@@ -538,3 +538,28 @@ def get_table_columns(
 ) -> List[Dict[str, Any]]:
     """Get columns for a table in Myfactory database."""
     return get_db_manager().get_table_columns(table_name, use_cache)
+
+
+# ============================================================
+# FastAPI dependency: session per request
+# ============================================================
+
+
+def get_db() -> Generator[Session, None, None]:
+    """
+    FastAPI dependency — yields a request-scoped SQLAlchemy session.
+
+    Usage:
+        @router.get("/x")
+        def x(db: Session = Depends(get_db)):
+            ...
+
+    Commit/rollback is the caller's responsibility. The generator
+    only guarantees the session is closed on request teardown.
+    """
+    db_manager = get_db_manager()
+    session = db_manager.get_local_session()
+    try:
+        yield session
+    finally:
+        session.close()
