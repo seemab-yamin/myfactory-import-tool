@@ -323,28 +323,33 @@ function buildMappingUI(targetCols, fileCols) {
         }
 
         html += `<tr id="${rowId}">
-                <td>${index + 1}</td>
-                <td>
-                    <strong>${fieldName}</strong>
-                    ${isMandatory ? '<span class="text-danger">*</span>' : ''}
-                    <br><span class="text-muted small">${col.type || ''}</span>
-                    <br><span class="text-muted small">ID: ${fieldId}</span>
-                </td>
-                <td>
-                    <select class="form-select form-select-sm source-select" data-target-id="${fieldId}" data-target-name="${fieldName}">
-                        <option value="None">None</option>
-                        ${fileCols.map(fc => `<option value="${fc}">${fc}</option>`).join('')}
-                    </select>
-                </td>
-                <td class="text-center">
-                    <input type="checkbox" class="form-check-input mandatory-check" data-target-id="${fieldId}" 
-                        ${isMandatory ? 'checked disabled' : ''}>
-                </td>
-                <td>
-                    <input type="text" class="form-control form-control-sm prepopulated-value"
-                        data-target-id="${fieldId}" placeholder="Pre Populated value...">
-                </td>
-            </tr>`;
+                    <td>${index + 1}</td>
+                    <td>
+                        <strong>${fieldName}</strong>
+                        ${isMandatory ? '<span class="text-danger">*</span>' : ''}
+                        <br><span class="text-muted small">${col.type || ''}</span>
+                        <br><span class="text-muted small">ID: ${fieldId}</span>
+                    </td>
+                    <td>
+                        <select class="form-select form-select-sm source-select"
+                                data-target-id="${fieldId}"
+                                data-target-name="${fieldName}"
+                                data-type="${col.type || ''}">
+                            <option value="None">None</option>
+                            ${fileCols.map(fc => `<option value="${fc}">${fc}</option>`).join('')}
+                        </select>
+                    </td>
+                    <td class="text-center">
+                        <input type="checkbox" class="form-check-input mandatory-check"
+                            data-target-id="${fieldId}"
+                            ${isMandatory ? 'checked disabled' : ''}>
+                    </td>
+                    <td>
+                        <input type="text" class="form-control form-control-sm prepopulated-value"
+                            data-target-id="${fieldId}"
+                            placeholder="Pre Populated value...">
+                    </td>
+                </tr>`;
     });
 
     tbody.innerHTML = html;

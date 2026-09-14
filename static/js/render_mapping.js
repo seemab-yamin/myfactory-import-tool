@@ -38,31 +38,34 @@ function renderMappingUI() {
     initialMappings = {};
 
     let html = '';
-    mappingsList.forEach((mapping, index) => {
-        const targetId = mapping.target_field_id;
-        const targetName = mapping.target_field_name || `Field_${targetId}`;
-        const hasSource = mapping.source_field || null;
-        const isMandatory = mapping.is_mandatory || false;
-        const prepopulatedValue = mapping.prepopulated_value || '';
-        const dataType = mapping.data_type || '';
+    Object.entries(mappingsList)
+        .sort(([, a], [, b]) => a.target_field_id - b.target_field_id)
+        .forEach(([targetName, item], index) => {
+            const targetId = item.target_field_id;
+            const dataType = item.data_type || '';
+            const hasSource = item.source_field || '';
+            const isMandatory = item.is_mandatory || false;
+            const prepopulatedValue = item.prepopulated_value || '';
 
-        // Store current state for change detection
-        currentMappings[targetName] = {
-            source_field: hasSource,
-            is_mandatory: isMandatory,
-            prepopulated_value: prepopulatedValue,
-            target_id: targetId
-        };
+            // Store current state for change detection
+            currentMappings[targetName] = {
+                source_field: hasSource,
+                is_mandatory: isMandatory,
+                prepopulated_value: prepopulatedValue,
+                target_id: targetId,
+                data_type: dataType,
+            };
 
-        // Also store initial state for change detection
-        initialMappings[targetName] = {
-            source_field: hasSource,
-            is_mandatory: isMandatory,
-            prepopulated_value: prepopulatedValue,
-            target_id: targetId
-        };
+            // Also store initial state for change detection
+            initialMappings[targetName] = {
+                source_field: hasSource,
+                is_mandatory: isMandatory,
+                prepopulated_value: prepopulatedValue,
+                target_id: targetId,
+                data_type: dataType,
+            };
 
-        html += `
+            html += `
             <tr>
                 <td>${index + 1}</td>
                 <td>
@@ -95,7 +98,7 @@ function renderMappingUI() {
                 </td>
             </tr>
         `;
-    });
+        });
 
     tbody.innerHTML = html;
 

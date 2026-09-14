@@ -52,7 +52,6 @@ function collectMappingsFromUI(
         const targetName = select.dataset.targetName;
         const targetId = parseInt(select.dataset.targetId);
         const sourceField = select.value === '' || select.value === 'None' ? null : select.value;
-
         const mandatoryCheck = document.querySelector(`${mandatorySelector}[data-target-id="${targetId}"]`);
         const prepopulatedInput = document.querySelector(`${prepopulatedSelector}[data-target-id="${targetId}"]`);
 
@@ -60,7 +59,8 @@ function collectMappingsFromUI(
             target_id: targetId,
             source_field: sourceField,
             is_mandatory: mandatoryCheck ? mandatoryCheck.checked : false,
-            prepopulated_value: prepopulatedInput ? prepopulatedInput.value.trim() : ''
+            prepopulated_value: prepopulatedInput ? prepopulatedInput.value.trim() : '',
+            data_type: select.dataset.type || ''
         };
     });
 
@@ -77,34 +77,6 @@ function updateSaveButton() {
     if (saveBtn) saveBtn.disabled = !hasChanges;
 }
 
-
-// ============================================================
-// 2. BUILD INITIAL MAPPINGS
-// ============================================================
-
-/**
- * Builds the initial state from backend data
- * @param {Object} supplierMappings - { targetName: { source_field, is_mandatory, prepopulated_value } }
- * @param {Array} targetFields - [{ field_name, id, is_nullable, data_type }]
- * @returns {Object} initialState - { targetName: { source_field, is_mandatory, prepopulated_value } }
- */
-function buildInitialMappings(supplierMappings, targetFields) {
-    const initialState = {};
-
-    (targetFields || []).forEach(target => {
-        const targetName = target.field_name;
-        const mapping = supplierMappings[targetName] || {};
-        initialState[targetName] = {
-            source_field: mapping.source_field || null,
-            is_mandatory: mapping.is_mandatory || false,
-            prepopulated_value: mapping.prepopulated_value || ''
-        };
-    });
-
-    return initialState;
-}
-
-
 // ============================================================
 // 3. DETECT CHANGES
 // ============================================================
@@ -112,7 +84,7 @@ function buildInitialMappings(supplierMappings, targetFields) {
 /**
  * Compares current state with initial state and returns changes
  * @param {Object} currentState - from collectMappingsFromUI()
- * @param {Object} initialState - from buildInitialMappings()
+ * @param {Object} initialState
  * @returns {Array} changes - [{ target_name, target_id, source_field, is_mandatory, prepopulated_value, was_removed }]
  */
 function detectChanges(currentState, initialState) {
@@ -158,205 +130,6 @@ function detectChanges(currentState, initialState) {
     return changes;
 }
 
-
-// ============================================================
-// 4. VALIDATE MAPPINGS
-// ============================================================
-
-/**
- * Validates mappings (duplicate source fields, mandatory fields with no value)
- * @param {Array} mappings - Array of mapping objects to validate
- * @returns {Array} errors - [{ target_name, message }]
- */
-function validateMappings(mappings) {
-    const errors = [];
-    const seenSources = new Set();
-
-    mappings.forEach((m, index) => {
-        // Validate target_id
-        if (!m.target_id || m.target_id <= 0 || isNaN(m.target_id)) {
-            errors.push({
-                target_name: m.target_name || `Row ${index + 1}`,
-                message: `Invalid target ID (${m.target_id})`
-            });
-        }
-
-        // Validate source_field uniqueness
-        if (m.source_field && m.source_field.trim() !== '') {
-            const key = m.source_field.trim();
-            if (seenSources.has(key)) {
-                errors.push({
-                    target_name: m.target_name || `Row ${index + 1}`,
-                    message: `Duplicate source field "${key}"`
-                });
-            }
-            seenSources.add(key);
-        }
-
-        // ✅ Mandatory fields must have source OR prepopulated value
-        if (m.is_mandatory) {
-            const hasSource = m.source_field && m.source_field.trim() !== '';
-            const hasPrepop = m.prepopulated_value && m.prepopulated_value.trim() !== '';
-            if (!hasSource && !hasPrepop) {
-                errors.push({
-                    target_name: m.target_name || `Row ${index + 1}`,
-                    message: 'Mandatory field requires either a source field or a prepopulated value.'
-                });
-            }
-        }
-    });
-
-    return errors;
-}
-
-
-// ============================================================
-// 5. SAVE MAPPINGS WITH API
-// ============================================================
-
-/**
- * Saves mappings to the server (POST for updates, DELETE for removals)
- * @param {string} supplierName - Name of the supplier
- * @param {Array} toUpdate - Mappings to create/update
- * @param {Array} toDelete - Mappings to delete
- * @param {Object} callbacks - { onProgress, onSuccess, onError, onComplete }
- * @returns {Promise} - Resolves with { successCount, failureCount, failedItems }
- */
-async function saveMappingsWithAPI(supplierName, toUpdate, toDelete, callbacks = {}) {
-    const {
-        onProgress = null,
-        onSuccess = null,
-        onError = null,
-        onComplete = null
-    } = callbacks;
-
-    const total = toUpdate.length + toDelete.length;
-    let completed = 0;
-    let successCount = 0;
-    let failureCount = 0;
-    const failedItems = [];
-
-    // Progress callback
-    if (onProgress) {
-        onProgress(0, total);
-    }
-
-    // Helper: update progress
-    function updateProgress() {
-        completed++;
-        if (onProgress) {
-            onProgress(completed, total);
-        }
-    }
-
-    // Helper: process response
-    function processResponse(response, type, target) {
-        updateProgress();
-        if (response.ok) {
-            successCount++;
-            return { success: true };
-        } else {
-            failureCount++;
-            let error = `HTTP ${response.status}`;
-            failedItems.push({ target, error, status: response.status });
-            return { success: false, error };
-        }
-    }
-
-    // Build promises for each operation
-    const promises = [];
-
-    // DELETE operations
-    for (const del of toDelete) {
-        const initSource = del._initial_source;
-        if (initSource) {
-            promises.push(
-                fetch(`/api/mappings/${encodeURIComponent(supplierName)}/${encodeURIComponent(initSource)}`, {
-                    method: 'DELETE',
-                })
-                    .then(res => {
-                        // 404 means already gone – treat as success
-                        if (res.status === 404) {
-                            successCount++;
-                            updateProgress();
-                            return { success: true, target: del.target_name, status: 204 };
-                        }
-                        return {
-                            success: res.ok,
-                            target: del.target_name,
-                            response: res,
-                            status: res.status
-                        };
-                    })
-                    .catch(err => {
-                        failureCount++;
-                        updateProgress();
-                        failedItems.push({ target: del.target_name, error: err.message || 'Network error' });
-                        return { success: false, target: del.target_name, error: err.message };
-                    })
-            );
-        }
-    }
-
-    // POST operations (updates/creates)
-    for (const upd of toUpdate) {
-        const formData = new FormData();
-        formData.append('source_field', upd.source_field || '');
-        formData.append('target_field_id', upd.target_id);
-        formData.append('is_active', 'true');
-        formData.append('is_mandatory', upd.is_mandatory ? 'true' : 'false');
-        formData.append('prepopulated_value', upd.prepopulated_value || '');
-
-        promises.push(
-            fetch(`/api/mappings/${encodeURIComponent(supplierName)}`, {
-                method: 'POST',
-                body: formData
-            })
-                .then(res => {
-                    updateProgress();
-                    if (res.ok) {
-                        successCount++;
-                        return { success: true, target: upd.target_name, response: res };
-                    } else {
-                        failureCount++;
-                        let error = `HTTP ${res.status}`;
-                        failedItems.push({ target: upd.target_name, error, status: res.status });
-                        return { success: false, target: upd.target_name, response: res, error };
-                    }
-                })
-                .catch(err => {
-                    failureCount++;
-                    updateProgress();
-                    failedItems.push({ target: upd.target_name, error: err.message || 'Network error' });
-                    return { success: false, target: upd.target_name, error: err.message };
-                })
-        );
-    }
-
-    // Wait for all operations
-    const results = await Promise.allSettled(promises);
-
-    // Process results (count successes/failures already tracked above)
-    const finalResults = {
-        successCount,
-        failureCount,
-        failedItems,
-        total,
-        completed
-    };
-
-    // Callbacks
-    if (failureCount > 0) {
-        if (onError) onError(finalResults);
-    } else {
-        if (onSuccess) onSuccess(finalResults);
-    }
-
-    if (onComplete) onComplete(finalResults);
-
-    return finalResults;
-}
-
 // ============================================================
 // 6. HIGHLIGHT ERROR ROWS
 // ============================================================
@@ -392,31 +165,6 @@ function scrollToFirstError() {
         firstErrorRow.scrollIntoView({ behavior: 'smooth', block: 'center' });
     }
 }
-
-// ============================================================
-// Detect if this is a new supplier (multiple checks)
-// ============================================================
-function isNewSupplierPage() {
-    // Check 1: Does #page-data exist with supplierId?
-    const pageDataEl = document.getElementById('page-data');
-    if (pageDataEl && pageDataEl.dataset.supplierId) {
-        return false;  // Edit page
-    }
-
-    // Check 2: Does supplier name input exist?
-    if (document.getElementById('supplierName')) {
-        return true;   // Add page
-    }
-
-    // Check 3: Check URL path
-    if (window.location.pathname.includes('/add-mapping')) {
-        return true;   // Add page
-    }
-
-    // Default: assume new supplier
-    return true;
-}
-
 
 // ============================================================
 // 8. SHOW VALIDATION ERRORS IN UI
@@ -549,6 +297,7 @@ async function saveMappings() {
         target_field_name: targetName,
         source_field: state.source_field || '',
         target_field_id: state.target_id,
+        data_type: state.data_type || '',
         is_active: true,
         is_mandatory: state.is_mandatory || false,
         prepopulated_value: state.prepopulated_value || ''
@@ -648,37 +397,6 @@ async function saveMappings() {
     }
 }
 
-
-
-// ============================================================
-// 9. SHOW SAVE RESULTS IN UI
-// ============================================================
-
-/**
- * Renders save results in the status area
- * @param {HTMLElement} statusDiv - The status div element
- * @param {Object} results - { successCount, failureCount, failedItems }
- */
-function renderSaveResults(statusDiv, results) {
-    if (!statusDiv) return;
-
-    const { successCount, failureCount, failedItems } = results;
-
-    if (failureCount > 0) {
-        let html = `<div class="text-danger"><strong>❌ ${failureCount} operation(s) failed</strong></div>`;
-        html += `<div class="text-success">✅ ${successCount} operation(s) succeeded</div>`;
-        html += `<div class="mt-2"><small>Check console for full details</small></div>`;
-        if (failedItems.length > 0) {
-            html += `<button class="btn btn-sm btn-warning mt-2" onclick="window._retryFailedMappings()">🔄 Retry Failed</button>`;
-            // Store failed items for retry
-            window._failedItems = failedItems;
-        }
-        statusDiv.innerHTML = html;
-    } else {
-        statusDiv.innerHTML = `<span class="text-success">✅ All ${successCount} changes saved successfully!</span>`;
-    }
-}
-
 /**
  * Validates mandatory fields in the current state.
  * Returns an array of errors for mandatory fields missing both source and prepopulated value.
@@ -712,11 +430,7 @@ window.validateMandatoryFields = validateMandatoryFields;
 
 // Make functions available globally
 window.collectMappingsFromUI = collectMappingsFromUI;
-window.buildInitialMappings = buildInitialMappings;
 window.detectChanges = detectChanges;
-window.validateMappings = validateMappings;
-window.saveMappingsWithAPI = saveMappingsWithAPI;
 window.highlightErrorRows = highlightErrorRows;
 window.scrollToFirstError = scrollToFirstError;
 window.renderValidationErrors = renderValidationErrors;
-window.renderSaveResults = renderSaveResults;
