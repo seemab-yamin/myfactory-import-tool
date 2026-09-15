@@ -240,51 +240,42 @@ class DatabaseManager:
             logger.error(f"❌ Myfactory connection failed: {e}")
             return False
 
-    def get_table_columns(
-        self, table_name: str = "tdProducts", use_cache: bool = True
+    def get_live_columns_from_mssql(
+        self, table_name: str = "tdProducts"
     ) -> List[Dict[str, Any]]:
         """
-        Get column information for a table from Myfactory database.
+        Fetch live column metadata directly from MSSQL.
+
+        Read-only: does NOT touch SQLite cache.
+
+        Returns:
+            List of dicts with keys:
+                name, type, nullable, default, max_length, is_identity
+            Returns [] on failure.
         """
 
-        logger.info(
-            f"🔍 get_table_columns called: table={table_name}, use_cache={use_cache}"
-        )
+        logger.info(f"🔍 Fetching live columns from MSSQL: table={table_name}")
 
-        # ✅ Step 1: Check cache first
-        if use_cache:
-            logger.info("🔍 Checking cache...")
-            cached = self._get_cached_columns(table_name)
-            if cached:
-                logger.info(
-                    f"✅ Returning {len(cached)} cached columns from SQLite for {table_name}"
-                )
-                return cached
-            logger.info("🔍 No cached columns found")
-
-        # ✅ Step 2: Fetch from MSSQL
-        logger.info("🔍 Fetching columns from Myfactory database...")
         engine = self._get_myfactory_engine()
         if engine is None:
-            logger.warning("⚠️ Engine is None, returning []")
+            logger.warning("⚠️ Myfactory engine is None, returning []")
             return []
 
         try:
-            logger.info("🔍 Inspecting table...")
             inspector = inspect(engine)
             columns = inspector.get_columns(table_name)
-            logger.info(f"🔍 Found {len(columns)} columns in {table_name}")
+            logger.info(f"✅ Found {len(columns)} live columns in {table_name}")
 
-            result = []
+            result: List[Dict[str, Any]] = []
             for col in columns:
-                # ✅ Extract max_length from type or top-level
+                # Extract max_length from top-level or type object
                 max_length = col.get("length")
                 if max_length is None:
-                    # Fall back to type object's length attribute
                     try:
                         max_length = getattr(col["type"], "length", None)
                     except Exception:
                         max_length = None
+
                 result.append(
                     {
                         "name": col["name"],
@@ -298,30 +289,66 @@ class DatabaseManager:
                     }
                 )
 
-            # ✅ Step 3: Insert into SQLite
-            logger.info(f"🔍 Caching {len(result)} columns to SQLite...")
-            self._cache_columns(table_name, result)
-
-            # ✅ Step 4: Fetch back from SQLite with IDs
-            logger.info("🔍 Fetching cached columns with IDs...")
-            cached_with_ids = self._get_cached_columns(table_name)
-            if cached_with_ids:
-                logger.info(
-                    f"✅ Inserted and retrieved {len(cached_with_ids)} columns from SQLite with IDs"
-                )
-                return cached_with_ids
-
-            # ✅ Fallback
-            logger.warning(
-                "⚠️ SQLite cache fetch failed, returning MSSQL data without IDs"
-            )
             return result
 
         except Exception as e:
-            logger.error(f"❌ Failed to get columns from {table_name}: {e}")
+            logger.error(f"❌ Failed to fetch live columns from {table_name}: {e}")
+            return []
+
+    def get_table_columns(
+        self,
+        table_name: str = "tdProducts",
+        use_cache: bool = True,
+        sort_by: str = "id",
+    ) -> List[Dict[str, Any]]:
+        """
+        Get column information for a table from Myfactory database.
+
+        - use_cache=True:  return cached columns from SQLite (with IDs).
+        - use_cache=False: fetch live from MSSQL, refresh SQLite cache, return cached rows.
+        """
+        logger.info(
+            f"🔍 get_table_columns called: table={table_name}, use_cache={use_cache}"
+        )
+
+        # ✅ Step 1: Cache hit
+        if use_cache:
+            logger.info("🔍 Checking cache...")
+            cached = self._get_cached_columns(table_name, sort_by=sort_by)
+            if cached:
+                logger.info(
+                    f"✅ Returning {len(cached)} cached columns from SQLite for {table_name}"
+                )
+                return cached
+            logger.info("🔍 No cached columns found")
+
+        # ✅ Step 2: Fetch live from MSSQL (read-only, no cache write)
+        logger.info("🔍 Fetching live columns from MSSQL...")
+        live_columns = self.get_live_columns_from_mssql(table_name)
+        if not live_columns:
+            logger.warning("⚠️ No live columns returned")
             return self._get_fallback_columns()
 
-    def _get_cached_columns(self, table_name: str) -> Optional[List[Dict[str, Any]]]:
+        # ✅ Step 3: Persist to SQLite
+        logger.info(f"🔍 Caching {len(live_columns)} columns to SQLite...")
+        self._cache_columns(table_name, live_columns)
+
+        # ✅ Step 4: Read back from SQLite (with IDs)
+        logger.info("🔍 Fetching cached columns with IDs...")
+        cached_with_ids = self._get_cached_columns(table_name, sort_by=sort_by)
+        if cached_with_ids:
+            logger.info(
+                f"✅ Inserted and retrieved {len(cached_with_ids)} columns from SQLite with IDs"
+            )
+            return cached_with_ids
+
+        # ✅ Fallback: return live data without IDs
+        logger.warning("⚠️ SQLite cache fetch failed, returning MSSQL data without IDs")
+        return live_columns
+
+    def _get_cached_columns(
+        self, table_name: str, sort_by: str = "id"
+    ) -> Optional[List[Dict[str, Any]]]:
         """Get cached columns from local database."""
         logger.info(f"🔍 _get_cached_columns called: table={table_name}")
 
@@ -333,6 +360,7 @@ class DatabaseManager:
                 columns = (
                     session.query(TargetField)
                     .filter(TargetField.table_name == table_name)
+                    .order_by(getattr(TargetField, sort_by))
                     .all()
                 )
                 logger.info(f"🔍 Query returned {len(columns)} rows")
@@ -355,7 +383,6 @@ class DatabaseManager:
                     logger.info("ℹ️ No cached columns found")
         except Exception as e:
             logger.error(f"❌ Could not get cached columns: {e}")
-
         return None
 
     def _cache_columns(self, table_name: str, columns: List[Dict[str, Any]]) -> None:

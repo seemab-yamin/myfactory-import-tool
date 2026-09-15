@@ -233,7 +233,7 @@ async function forceRefreshSchema() {
     statusDiv.innerHTML = '<span class="text-info">⏳ Refreshing schema from database...</span>';
 
     try {
-        const response = await fetch('/api/schema?refresh_cache=true&use_cache=false');
+        const response = await fetch('/api/schema?refresh_cache=true');
         if (!response.ok) throw new Error(`HTTP ${response.status}`);
 
         await fetchTargetSchema();

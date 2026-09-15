@@ -65,7 +65,6 @@
   <div class="toast-container position-fixed bottom-0 end-0 p-3"></div>
 
   <!-- ✅ Pass data to JavaScript via data attributes -->
-  <!-- target_fields is NOT passed from backend – JS will fetch via /api/schema -->
   <div id="page-data" data-supplier-id="{{ supplier_id }}" data-supplier-name="{{ supplier_name }}" data-source-fields="{{ source_fields|default([])|tojson|forceescape }}" data-supplier-mappings="{{ supplier_mappings|default({})|tojson|forceescape }}" style="display:none;"></div>
 
   {% block scripts %}

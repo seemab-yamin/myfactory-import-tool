@@ -20,12 +20,9 @@ from src.models import (
 from src.paths import BASE_DIR
 from src.schema_scanner import (
     SchemaScanner,
-    get_column_names,
-    get_columns_for_mapping,
     get_scanner,
     get_table_schema,
     get_live_schema_as_target_fields,
-    refresh_schema_cache,
 )
 
 __all__ = [
@@ -35,8 +32,6 @@ __all__ = [
     "get_scanner",
     "get_table_schema",
     "get_live_schema_as_target_fields",
-    "get_columns_for_mapping",
-    "get_column_names",
     "get_default_logger",
     "get_logger",
     "ImportAudit",
@@ -46,7 +41,6 @@ __all__ = [
     "LoggerAdapter",
     "LoggerManager",
     "MyfactoryImporter",
-    "refresh_schema_cache",
     "Supplier",
     "SchemaScanner",
     "setup_logger",

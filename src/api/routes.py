@@ -19,7 +19,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from src.config_manager import ensure_configured, get_config_manager
-from src.db import local_session
+from src.db import local_session, get_db_manager
 from src.importer import get_importer, run_import
 from src.logger import get_logger
 from src.mapper import get_mapper
@@ -132,12 +132,6 @@ async def mappings_page(request: Request, supplier_id: int):
         raise HTTPException(
             status_code=404, detail=f"Supplier with ID {supplier_id} not found"
         )
-
-    # save as a list to preserve formatting
-    # supplier["mappings"] = [
-    #     {key: item} for key, item in supplier.get("mappings").items()
-    # ]
-    print(f"TODO: supplier.get('mappings'): {supplier.get('mappings')}")
     return templates.TemplateResponse(
         request,
         "show_mapping.html",
@@ -392,7 +386,6 @@ async def api_get_mappings(supplier_id: int, active_only: bool = False):
     mappings = mapper.get_mappings(supplier_id, active_only)
 
     # Get supplier name for response
-    from src.db import local_session
     from src.models import Supplier
 
     with local_session() as session:
@@ -498,10 +491,8 @@ class TableSchemaResponse(BaseModel):
 
 @router.get("/api/schema")
 async def api_schema(
-    use_cache: bool = True,
-    simplified: bool = False,
     refresh_cache: bool = False,
-    sort_by: str = "target_field_id",
+    sort_by: str = "id",
 ):
     """Return JSON schema for the default table."""
 
@@ -510,25 +501,16 @@ async def api_schema(
 
     config = get_config_manager()
     default_products_table = config.get().default_products_table
-    scanner = get_scanner()
+    db = get_db_manager()
 
     if refresh_cache:
-        scanner.refresh_cache(default_products_table)
-
-    if not scanner.table_exists(default_products_table):
-        raise HTTPException(
-            status_code=404, detail=f"Table '{default_products_table}' not found."
-        )
-
-    if simplified:
-        columns = scanner.get_columns_for_mapping(
-            default_products_table, use_cache, sort_by=sort_by
+        columns = db.get_table_columns(
+            sort_by=sort_by, table_name=default_products_table, use_cache=False
         )
     else:
-        columns = scanner.get_table_schema(
-            default_products_table, use_cache, sort_by=sort_by
+        columns = db.get_table_columns(
+            sort_by=sort_by, table_name=default_products_table, use_cache=True
         )
-
     return {
         "table_name": default_products_table,
         "total_columns": len(columns),
@@ -618,7 +600,6 @@ async def api_schema_change_log(limit: int = 20):
     if not ensure_configured():
         raise HTTPException(status_code=400, detail="Database not configured.")
 
-    from src.db import local_session
     from src.models import SchemaChangeLog
 
     with local_session() as session:

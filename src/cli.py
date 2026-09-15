@@ -124,9 +124,6 @@ def create_parser():
     # Schema command
     schema_parser = subparsers.add_parser("schema", help="Show table schema")
     schema_parser.add_argument("-t", "--table", default="tdProducts", help="Table name")
-    schema_parser.add_argument(
-        "--names-only", action="store_true", help="Show only column names"
-    )
     schema_parser.add_argument("--refresh", action="store_true", help="Refresh cache")
     schema_parser.add_argument(
         "--show-all", action="store_true", help="Show all tables"
@@ -342,14 +339,6 @@ def cli_schema(args):
     for table_name in tables_to_scan:
         if not scanner.table_exists(table_name):
             console.print(f"[yellow]⚠️ Table '{table_name}' not found[/yellow]")
-            continue
-
-        if args.names_only:
-            names = scanner.get_column_names(table_name)
-            console.print(f"\n[bold cyan]📋 Columns in {table_name}:[/bold cyan]")
-            for name in names:
-                console.print(f"  • [green]{name}[/green]")
-            console.print(f"\n[bold]Total: {len(names)} columns[/bold]")
             continue
 
         columns = scanner.get_table_schema(table_name)
