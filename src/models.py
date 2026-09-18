@@ -45,6 +45,10 @@ class Supplier(Base):
         DateTime, nullable=True, default=None
     )
     schema_changed_flag: Mapped[bool] = mapped_column(Boolean, default=False)
+    header_row_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    sheet_name: Mapped[Optional[str]] = mapped_column(String(100), nullable=True)
 
     def __repr__(self) -> str:
         return f"<Supplier(id={self.id}, name={self.name})>"
@@ -60,6 +64,8 @@ class Supplier(Base):
                 self.schema_changed_at.isoformat() if self.schema_changed_at else None
             ),
             "schema_changed_flag": self.schema_changed_flag,
+            "header_row_index": self.header_row_index,
+            "sheet_name": self.sheet_name,
         }
 
 
@@ -305,7 +311,8 @@ class ImportConfigDTO:
     dry_run: bool = False
     table_name: str = "tdProducts"
     supplier_name: str = "default"
-    skip_header: bool = True
+    header_row_index: int = 1
+    sheet_name: Optional[str] = None
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -317,7 +324,8 @@ class ImportConfigDTO:
             "dry_run": self.dry_run,
             "table_name": self.table_name,
             "supplier_name": self.supplier_name,
-            "skip_header": self.skip_header,
+            "header_row_index": self.header_row_index,
+            "sheet_name": self.sheet_name,
         }
 
 
