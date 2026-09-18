@@ -1,5 +1,6 @@
 """Core import logic for Myfactory with CSV/Excel parsing, batch insert, and audit logging."""
 
+import csv
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
@@ -22,17 +23,25 @@ from src.models import (
 logger = get_logger(__name__)
 
 
-def run_import(file_path, supplier, dry_run, batch_size):
+def run_import(
+    file_path,
+    supplier,
+    dry_run,
+    batch_size,
+    header_row_index=None,
+    sheet_name=None,
+):
     importer = get_importer()
-    result = importer.import_file(
+    return importer.import_file(
         {
             "file_path": str(file_path),
             "supplier_name": supplier,
             "dry_run": dry_run,
             "batch_size": batch_size,
+            "header_row_index": header_row_index,
+            "sheet_name": sheet_name,
         }
     )
-    return result
 
 
 class MyfactoryImporter:
@@ -53,13 +62,6 @@ class MyfactoryImporter:
         table_name: str = None,
         auto_fetch_mapping: bool = True,
     ):
-        """
-        Initialize the importer.
-
-        Args:
-            batch_size: Number of rows per batch
-            table_name: Target table name (default from config)
-        """
         self.auto_fetch_mapping = auto_fetch_mapping
         self.batch_size = batch_size or get_config_manager().get().default_batch_size
         self.table_name = table_name or get_table_name()
@@ -77,15 +79,6 @@ class MyfactoryImporter:
     def import_file(
         self, config: Union[ImportConfigDTO, Dict[str, Any]]
     ) -> ImportResultDTO:
-        """
-        Import a file with the given configuration.
-
-        Args:
-            config: ImportConfigDTO or dict with file_path, supplier_name, etc.
-
-        Returns:
-            ImportResultDTO with import summary
-        """
         # Convert dict to DTO if needed
         if isinstance(config, dict):
             config = ImportConfigDTO(**config)
@@ -105,26 +98,59 @@ class MyfactoryImporter:
             table_name=config.table_name,
             dry_run=config.dry_run,
         )
-
-        # Save audit record
         with local_session() as session:
             session.add(audit)
             session.flush()
             audit_id = audit.id
 
         try:
-            # 1. Read file
-            df = self._read_file(config.file_path, config.delimiter)
+            # ── Resolve supplier (DB source of truth) ──
+            supplier = self.mapper.get_supplier(config.supplier_name)
+            if not supplier:
+                raise ValueError(
+                    f"Supplier '{config.supplier_name}' not found. "
+                    "Please create it via Add Supplier first."
+                )
+
+            supplier_id = supplier.id
+            db_header_row = supplier.header_row_index if supplier else 1
+            db_sheet_name = supplier.sheet_name if supplier else None
+
+            # ── Resolve Excel/CSV config: DTO override → DB → default ──
+            header_row_index = (
+                config.header_row_index
+                if config.header_row_index is not None
+                else db_header_row
+            )
+            sheet_name = (
+                config.sheet_name if config.sheet_name is not None else db_sheet_name
+            )
+
+            logger.info(
+                f"   header_row_index={header_row_index} (source: "
+                f"{'DTO' if config.header_row_index is not None else 'DB'})"
+            )
+            logger.info(
+                f"   sheet_name={sheet_name} (source: "
+                f"{'DTO' if config.sheet_name is not None else 'DB'})"
+            )
+
+            # 1. Read file (single call, resolved config)
+            df = self._read_file(
+                file_path=config.file_path,
+                delimiter=config.delimiter,
+                header_row_index=header_row_index,
+                sheet_name=sheet_name,
+            )
 
             # 2. Get mapping
             if config.mapping:
-                # Use provided mapping
                 mapping = config.mapping
+                logger.info(f"   Mapping source: DTO ({len(mapping)} fields)")
             else:
-                # Load from database
-                mapping = self.mapper.get_mappings(
-                    config.supplier_name, active_only=True
-                )
+                mapping = self.mapper.get_mapping_dict(supplier_id, active_only=True)
+                logger.info(f"   Mapping source: DB ({len(mapping)} fields)")
+
             if not mapping:
                 raise ValueError(
                     f"No mapping found for supplier '{config.supplier_name}'. "
@@ -155,7 +181,6 @@ class MyfactoryImporter:
         except Exception as e:
             logger.error(f"❌ Import failed: {e}", exc_info=True)
 
-            # Update audit with failure
             with local_session() as session:
                 audit = (
                     session.query(ImportAudit)
@@ -180,18 +205,14 @@ class MyfactoryImporter:
             )
 
     def _read_file(
-        self, file_path: str, delimiter: Optional[str] = None
+        self,
+        file_path: str,
+        delimiter: Optional[str] = None,
+        header_row_index: int = 1,
+        sheet_name: Optional[str] = None,
     ) -> pd.DataFrame:
-        """
-        Read CSV or Excel file with auto-delimiter detection.
+        """Read CSV or Excel file with unified config."""
 
-        Args:
-            file_path: Path to file
-            delimiter: Optional delimiter override
-
-        Returns:
-            DataFrame with file contents
-        """
         path = Path(file_path)
 
         if not path.exists():
@@ -200,10 +221,12 @@ class MyfactoryImporter:
         ext = path.suffix.lower()
 
         try:
-            if ext in [".csv"]:
-                df = self._read_csv(path, delimiter)
+            if ext == ".csv":
+                if sheet_name:
+                    logger.warning(f"sheet_name='{sheet_name}' ignored for CSV file")
+                df = self._read_csv(path, delimiter, header_row_index)
             elif ext in [".xlsx", ".xls"]:
-                df = self._read_excel(path)
+                df = self._read_excel(path, sheet_name, header_row_index)
             else:
                 raise ValueError(
                     f"Unsupported file type: {ext}. Please use CSV or Excel."
@@ -221,72 +244,82 @@ class MyfactoryImporter:
             logger.error(f"Failed to read file: {e}")
             raise
 
-    def _read_csv(self, path: Path, delimiter: Optional[str] = None) -> pd.DataFrame:
-        """Read CSV with auto-delimiter detection."""
-        # Auto-detect delimiter
-        if delimiter is None:
-            with open(path, "r", encoding="utf-8-sig") as f:
-                first_line = f.readline()
+    def _read_csv(
+        self,
+        path: Path,
+        delimiter: Optional[str] = None,
+        header_row_index: int = 1,
+    ) -> pd.DataFrame:
+        """Read CSV with optional custom header row."""
+        skip = max(header_row_index - 1, 0)
 
-            # Check for common delimiters
-            if "\t" in first_line:
-                delimiter = "\t"
-            elif ";" in first_line:
-                delimiter = ";"
-            else:
+        if delimiter is None:
+            with open(path, "r", encoding="utf-8", errors="ignore") as f:
+                sample = f.read(4096)
+            try:
+                delimiter = csv.Sniffer().sniff(sample).delimiter
+            except csv.Error:
                 delimiter = ","
 
-            logger.info(f"Detected delimiter: '{delimiter}'")
+        df = pd.read_csv(
+            path,
+            delimiter=delimiter,
+            skiprows=skip,
+            header=0,
+            encoding="utf-8",
+            on_bad_lines="warn",
+        )
 
-        # Try different encodings
-        encodings = ["utf-8-sig", "utf-8", "latin-1", "cp1252"]
-        for encoding in encodings:
-            try:
-                df = pd.read_csv(
-                    path,
-                    delimiter=delimiter,
-                    encoding=encoding,
-                    skip_blank_lines=True,
-                    dtype=str,
-                    keep_default_na=False,
-                )
-                logger.info(f"Read CSV with encoding: {encoding}")
-                return df
-            except UnicodeDecodeError:
-                continue
-            except Exception as e:
-                logger.debug(f"Failed with encoding {encoding}: {e}")
-                continue
+        if df.columns.isna().all():
+            logger.warning("Header row resolved to all-NaN. Generating col_1..col_N")
+            df.columns = [f"col_{i+1}" for i in range(len(df.columns))]
 
-        raise ValueError("Could not read CSV with any encoding")
+        return df
 
-    def _read_excel(self, path: Path) -> pd.DataFrame:
-        """Read Excel file."""
+    def _read_excel(
+        self,
+        path: Path,
+        sheet_name: Optional[str] = None,
+        header_row_index: int = 1,
+    ) -> pd.DataFrame:
+        """Read Excel with optional sheet selection and custom header row."""
+        skip = max(header_row_index - 1, 0)
+
         try:
-            # Try reading all sheets and merging
-            xl = pd.ExcelFile(path)
-
-            if len(xl.sheet_names) > 1:
-                logger.info(f"Found {len(xl.sheet_names)} sheets, merging all")
-                dfs = []
-                for sheet in xl.sheet_names:
-                    df = pd.read_excel(
-                        path, sheet_name=sheet, dtype=str, keep_default_na=False
-                    )
-                    dfs.append(df)
-                df = pd.concat(dfs, ignore_index=True)
-            else:
-                df = pd.read_excel(path, dtype=str, keep_default_na=False)
-
-            logger.info(f"Read Excel with {len(xl.sheet_names)} sheets")
-            return df
-
+            excel_file = pd.ExcelFile(path)
+            available_sheets = excel_file.sheet_names
         except Exception as e:
-            raise ValueError(f"Failed to read Excel file: {e}")
+            logger.error(f"Failed to open Excel file: {e}")
+            raise
+
+        effective_sheet = sheet_name
+        if sheet_name and sheet_name not in available_sheets:
+            logger.warning(
+                f"Sheet '{sheet_name}' not found. "
+                f"Available: {available_sheets}. Falling back to first sheet."
+            )
+            effective_sheet = None
+        elif sheet_name is None:
+            logger.info(
+                f"No sheet_name provided. Using first sheet: {available_sheets[0]}"
+            )
+
+        df = pd.read_excel(
+            path,
+            sheet_name=effective_sheet if effective_sheet else 0,
+            skiprows=skip,
+            header=0,
+        )
+
+        if df.columns.isna().all():
+            logger.warning("Header row resolved to all-NaN. Generating col_1..col_N")
+            df.columns = [f"col_{i+1}" for i in range(len(df.columns))]
+
+        return df
 
     def _apply_mapping(self, df: pd.DataFrame, mapping: Dict[str, str]) -> pd.DataFrame:
         """Apply field mapping to DataFrame."""
-        # Keep only mapped columns
+
         mapped_data = {}
         for source_field, target_field in mapping.items():
             if source_field in df.columns:
@@ -309,13 +342,11 @@ class MyfactoryImporter:
         errors = []
         target_cols = self.get_target_columns()
 
-        # Check for required columns (ProductNumber is required is auto-generated)
         if "ProductNumber" not in df.columns:
             errors.append(
                 "No ProductNumber column found - this is required for product identification"
             )
 
-        # Filter to valid columns
         valid_columns = [col for col in df.columns if col in target_cols]
         invalid_columns = [col for col in df.columns if col not in target_cols]
 
@@ -333,12 +364,8 @@ class MyfactoryImporter:
     def _perform_import(
         self, df: pd.DataFrame, audit_id: int, batch_size: int
     ) -> ImportResultDTO:
-        """
-        Perform batch insert into database.
+        """Perform batch insert into database."""
 
-        Returns:
-            ImportResultDTO with import summary
-        """
         if df.empty:
             logger.warning("No data to import")
             return ImportResultDTO(
@@ -356,17 +383,14 @@ class MyfactoryImporter:
         failed_rows = 0
         errors = []
 
-        # Convert to list of dicts
         records = df.to_dict("records")
 
-        # Process in batches
         for i in range(0, total_rows, batch_size):
             batch = records[i : i + batch_size]
             batch_num = (i // batch_size) + 1
 
             try:
                 with myfactory_session() as session:
-                    # Use bulk insert for performance
                     session.bulk_insert_mappings(self.table_name, batch)
                     session.commit()
 
@@ -374,26 +398,8 @@ class MyfactoryImporter:
                 logger.info(f"✅ Batch {batch_num}: Inserted {len(batch)} rows")
 
             except Exception as e:
-                # Handle batch failure - try row by row
                 logger.error(f"❌ Batch {batch_num} failed: {e}")
                 failed_rows += self._insert_rows_individually(batch, errors)
-
-        # Update audit
-        self._update_audit(
-            audit_id,
-            ImportResultDTO(
-                status=(
-                    ImportStatus.SUCCESS if failed_rows == 0 else ImportStatus.FAILED
-                ),
-                total_rows=total_rows,
-                imported_rows=imported_rows,
-                failed_rows=failed_rows,
-                skipped_rows=0,
-                errors=errors,
-                log_file=logger.handlers[0].baseFilename if logger.handlers else "",
-            ),
-            errors,
-        )
 
         return ImportResultDTO(
             status=ImportStatus.SUCCESS if failed_rows == 0 else ImportStatus.FAILED,
@@ -431,30 +437,23 @@ class MyfactoryImporter:
     def _dry_run(
         self, df: pd.DataFrame, mapping: Dict[str, str], audit_id: int
     ) -> ImportResultDTO:
-        """
-        Execute dry-run with preview.
+        """Execute dry-run with preview."""
 
-        Returns:
-            ImportResultDTO with preview data in details
-        """
         logger.info("=" * 60)
         logger.info("🔍 DRY RUN MODE - No changes will be made")
         logger.info("=" * 60)
 
-        # Show mapping preview
         logger.info(f"Mapping ({len(mapping)} fields):")
         for source, target in mapping.items():
             logger.info(f"  {source} → {target}")
 
-        # Show data preview
         logger.info(f"\nData preview ({len(df)} rows, {len(df.columns)} columns):")
         if not df.empty:
             logger.info(f"Columns: {list(df.columns)}")
             preview_rows = min(10, len(df))
             logger.info(f"First {preview_rows} rows:")
-            print(df.head(preview_rows).to_string())
+            logger.info("\n" + df.head(preview_rows).to_string())
 
-        # Validate data
         errors = []
         for idx, row in df.iterrows():
             if pd.isna(row.get("ProductNumber")):
@@ -462,25 +461,6 @@ class MyfactoryImporter:
 
         if errors:
             logger.warning(f"Found {len(errors)} issues in data")
-
-        # Update audit
-        self._update_audit(
-            audit_id,
-            ImportResultDTO(
-                status=ImportStatus.DRY_RUN,
-                total_rows=len(df),
-                imported_rows=0,
-                failed_rows=0,
-                skipped_rows=0,
-                errors=errors,
-                log_file=logger.handlers[0].baseFilename if logger.handlers else "",
-            ),
-            errors,
-        )
-
-        logger.info("=" * 60)
-        logger.info("✅ Dry run completed. No changes made.")
-        logger.info("=" * 60)
 
         return ImportResultDTO(
             status=ImportStatus.DRY_RUN,
@@ -565,6 +545,17 @@ class MyfactoryImporter:
         """Clear target columns cache."""
         self._target_columns = None
 
+    def list_excel_sheets(self, file_path: str) -> List[str]:
+        """Return sheet names for an Excel file. Empty list for CSV."""
+        path = Path(file_path)
+        if path.suffix.lower() not in [".xlsx", ".xls"]:
+            return []
+        try:
+            return pd.ExcelFile(path).sheet_names
+        except Exception as e:
+            logger.error(f"Failed to list sheets: {e}")
+            return []
+
 
 # ========== Singleton Accessor ==========
 
@@ -583,7 +574,6 @@ def get_importer(batch_size: int = 1000, table_name: str = None) -> MyfactoryImp
 if __name__ == "__main__":
     importer = get_importer()
 
-    # Import with config
     result = importer.import_file(
         {
             "file_path": "sample.csv",
