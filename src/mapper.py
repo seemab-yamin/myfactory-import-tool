@@ -76,6 +76,16 @@ class FieldMapper:
             self._cache[cache_key] = mappings
             return mappings
 
+    def get_mapping_dict(
+        self, supplier_id: int, active_only: bool = True
+    ) -> Dict[str, str]:
+        raw = self.get_mappings(supplier_id, active_only)
+        return {
+            m["source_field"]: m["target_field"]
+            for m in raw
+            if m.get("source_field") and m.get("target_field")
+        }
+
     def mapping_name_exists(self, mapping_name: str) -> bool:
         """Check if a supplier has any mappings (lightweight with LIMIT 1)."""
         with local_session() as session:
