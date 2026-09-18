@@ -285,13 +285,7 @@ class MyfactoryImporter:
         """Read Excel with optional sheet selection and custom header row."""
         skip = max(header_row_index - 1, 0)
 
-        try:
-            excel_file = pd.ExcelFile(path)
-            available_sheets = excel_file.sheet_names
-        except Exception as e:
-            logger.error(f"Failed to open Excel file: {e}")
-            raise
-
+        available_sheets = self.read_sheets(path)
         effective_sheet = sheet_name
         if sheet_name and sheet_name not in available_sheets:
             logger.warning(
@@ -315,7 +309,7 @@ class MyfactoryImporter:
             logger.warning("Header row resolved to all-NaN. Generating col_1..col_N")
             df.columns = [f"col_{i+1}" for i in range(len(df.columns))]
 
-        return df
+        return df, available_sheets
 
     def _apply_mapping(self, df: pd.DataFrame, mapping: Dict[str, str]) -> pd.DataFrame:
         """Apply field mapping to DataFrame."""
