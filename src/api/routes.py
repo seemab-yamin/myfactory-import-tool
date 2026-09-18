@@ -89,7 +89,6 @@ async def mappings_list_page(request: Request):
                 service = SchemaDriftService(session)
                 schema_details = service.check_and_sync()
                 schema_changed = bool(schema_details.get("has_changes"))
-                print(f"TODO: Schema drift check result: {schema_details}")
         except Exception as e:
             logger.warning(f"Schema drift check failed on /mappings-list: {e}")
             schema_details = {"error": str(e), "has_changes": False}
@@ -518,12 +517,54 @@ async def api_schema(
     }
 
 
+@router.post("/api/parse-sheets")
+async def parse_sheets(file: UploadFile = File(...)):
+    """
+    /api/parse-sheets returns available_sheets for an Excel file. Empty list for CSV.
+    """
+    import tempfile
+
+    try:
+        content = await file.read()
+
+        # Determine file type
+        filename = file.filename.lower()
+        suffix = Path(filename).suffix
+
+        if suffix not in [".xlsx", ".xls"]:
+            raise HTTPException(status_code=400, detail="Unsupported file type")
+
+        # write to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+            tmp_file.write(content)
+            tmp_file_path = tmp_file.name
+
+        importer = get_importer()
+        available_sheets = importer.list_excel_sheets(Path(tmp_file_path))
+
+        return {
+            "available_sheets": available_sheets,
+            "file_name": file.filename,
+            "file_path": str(tmp_file_path),
+        }
+
+    except Exception as e:
+        logger.error(f"Parse sheets error: {e}")
+        raise HTTPException(status_code=400, detail=f"Failed to parse sheets: {str(e)}")
+
+
 @router.post("/api/parse-sample")
 async def parse_sample_file(
     file: UploadFile = File(...),
+    delimiter: str = None,
+    header_row_index: int = 0,
+    sheet_name: str = None,
 ):
-    from io import BytesIO
+    """
+    /api/parse-sample accepts header_row_index, sheet_name; returns available_sheets, effective_sheet, preview, columns	routes.py
+    """
 
+    import tempfile
     import pandas as pd
 
     try:
@@ -531,15 +572,24 @@ async def parse_sample_file(
 
         # Determine file type
         filename = file.filename.lower()
-        if filename.endswith(".csv"):
-            df = pd.read_csv(BytesIO(content), nrows=5)
-        elif filename.endswith((".xlsx", ".xls")):
-            df = pd.read_excel(BytesIO(content), nrows=5)
-        else:
-            raise HTTPException(
-                status_code=400,
-                detail="Unsupported file type. Please upload CSV or Excel.",
-            )
+        suffix = Path(filename).suffix
+
+        if suffix not in [".csv", ".xlsx", ".xls"]:
+            raise HTTPException(status_code=400, detail="Unsupported file type")
+
+        # write to a temporary file
+        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
+            tmp_file.write(content)
+            tmp_file_path = tmp_file.name
+
+        importer = get_importer()
+        df = importer._read_file(
+            file_path=str(tmp_file_path),
+            delimiter=delimiter,
+            header_row_index=header_row_index,
+            sheet_name=sheet_name,
+        )
+        print(f"TODO: df preview: {df.head()}")  # Debugging
 
         if df.empty:
             raise HTTPException(status_code=400, detail="File is empty")
@@ -554,6 +604,8 @@ async def parse_sample_file(
             .to_dict(orient="records")
         )
 
+        # TODO: available_sheets, effective_sheet
+        # , preview, columns
         return {
             "columns": columns,
             "preview": preview,
