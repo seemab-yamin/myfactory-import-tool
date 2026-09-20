@@ -1,5 +1,6 @@
 """API routes for MyFactory Import Tool."""
 
+import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -19,7 +20,7 @@ from pydantic import BaseModel
 from starlette.requests import Request
 
 from src.config_manager import ensure_configured, get_config_manager
-from src.db import local_session, get_db_manager
+from src.db import get_db_manager, local_session
 from src.importer import get_importer, run_import
 from src.logger import get_logger
 from src.mapper import get_mapper
@@ -143,6 +144,10 @@ async def mappings_page(request: Request, supplier_id: int):
             "supplier_mappings": (
                 supplier.get("mappings") if supplier.get("mappings") else {}
             ),
+            "header_row_index": supplier.get("header_row_index"),
+            "sheet_name": supplier.get("sheet_name"),
+            "created_at": supplier.get("created_at"),
+            "updated_at": supplier.get("updated_at"),
         },
     )
 
@@ -177,6 +182,8 @@ async def upload_file(
     supplier_id: int = Form(...),
     dry_run: bool = Form(False),
     batch_size: int = Form(1000),
+    header_row_index: int = Form(1),
+    sheet_name: str = Form(None),
 ):
     """
     Upload and import a file.
@@ -270,6 +277,8 @@ async def upload_file(
                     "supplier_id": supplier_id,
                     "dry_run": True,
                     "batch_size": batch_size,
+                    "header_row_index": header_row_index,
+                    "sheet_name": sheet_name,
                 }
             )
 
@@ -311,6 +320,8 @@ async def upload_file(
         file_path=str(file_path),
         supplier_id=supplier_id,
         batch_size=batch_size,
+        header_row_index=header_row_index,
+        sheet_name=sheet_name,
     )
 
     return {
@@ -405,6 +416,9 @@ async def api_save_mappings(
     source_fields: List[str] = Body(...),
     mappings: List[dict] = Body(...),
     is_new_supplier: bool = Body(False),
+    delimiter: Optional[str] = Body(None),  # ← Body, not bare
+    header_row_index: int = Body(1),  # ← Body
+    sheet_name: Optional[str] = Body(None),
 ):
     """Save a mappings for a supplier."""
 
@@ -412,13 +426,15 @@ async def api_save_mappings(
         raise HTTPException(
             status_code=400, detail="Database not configured. Run setup first."
         )
-
     mapper = get_mapper()
     _, supplier_id = mapper.save_mappings(
         supplier_name=supplier_name,
         source_fields=source_fields,
         mappings=mappings,
         is_new_supplier=is_new_supplier,
+        header_row_index=header_row_index,
+        sheet_name=sheet_name,
+        delimiter=delimiter,
     )
 
     return {
@@ -522,7 +538,6 @@ async def parse_sheets(file: UploadFile = File(...)):
     """
     /api/parse-sheets returns available_sheets for an Excel file. Empty list for CSV.
     """
-    import tempfile
 
     try:
         content = await file.read()
@@ -556,15 +571,14 @@ async def parse_sheets(file: UploadFile = File(...)):
 @router.post("/api/parse-sample")
 async def parse_sample_file(
     file: UploadFile = File(...),
-    delimiter: str = None,
-    header_row_index: int = 0,
-    sheet_name: str = None,
+    delimiter: Optional[str] = Form(None),  # ← Form, not bare
+    header_row_index: int = Form(1),  # ← Form
+    sheet_name: Optional[str] = Form(None),  # ← Form
 ):
     """
     /api/parse-sample accepts header_row_index, sheet_name; returns available_sheets, effective_sheet, preview, columns	routes.py
     """
 
-    import tempfile
     import pandas as pd
 
     try:
@@ -583,13 +597,12 @@ async def parse_sample_file(
             tmp_file_path = tmp_file.name
 
         importer = get_importer()
-        df = importer._read_file(
+        df, available_sheets = importer._read_file(
             file_path=str(tmp_file_path),
             delimiter=delimiter,
             header_row_index=header_row_index,
             sheet_name=sheet_name,
         )
-        print(f"TODO: df preview: {df.head()}")  # Debugging
 
         if df.empty:
             raise HTTPException(status_code=400, detail="File is empty")
@@ -604,13 +617,14 @@ async def parse_sample_file(
             .to_dict(orient="records")
         )
 
-        # TODO: available_sheets, effective_sheet
-        # , preview, columns
         return {
             "columns": columns,
             "preview": preview,
             "row_count": len(df),
+            "delimiter": delimiter,
             "column_count": len(columns),
+            "available_sheets": available_sheets,
+            "effective_sheet": sheet_name,
         }
 
     except Exception as e:

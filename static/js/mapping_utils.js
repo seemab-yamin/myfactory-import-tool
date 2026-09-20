@@ -35,10 +35,6 @@ function getPageData() {
 
 /**
  * Collects current mapping state from the UI (dropdowns, checkboxes, inputs)
- * @param {string} selectSelector - CSS selector for source selects (default: '.source-select')
- * @param {string} mandatorySelector - CSS selector for mandatory checkboxes (default: '.mandatory-check')
- * @param {string} prepopulatedSelector - CSS selector for prepopulated inputs (default: '.prepopulated-value')
- * @returns {Object} currentState - { targetName: { target_id, source_field, is_mandatory, prepopulated_value } }
  */
 function collectMappingsFromUI(
     selectSelector = '.source-select',
@@ -71,7 +67,6 @@ function collectMappingsFromUI(
 // UI HELPERS
 // ============================================================
 
-// ===== Update Save Button =====
 function updateSaveButton() {
     const saveBtn = document.getElementById('saveBtn');
     if (saveBtn) saveBtn.disabled = !hasChanges;
@@ -81,16 +76,9 @@ function updateSaveButton() {
 // 3. DETECT CHANGES
 // ============================================================
 
-/**
- * Compares current state with initial state and returns changes
- * @param {Object} currentState - from collectMappingsFromUI()
- * @param {Object} initialState
- * @returns {Array} changes - [{ target_name, target_id, source_field, is_mandatory, prepopulated_value, was_removed }]
- */
 function detectChanges(currentState, initialState) {
     const changes = [];
 
-    // Combine keys from both states
     const allTargets = new Set([
         ...Object.keys(currentState),
         ...Object.keys(initialState)
@@ -100,13 +88,11 @@ function detectChanges(currentState, initialState) {
         const cur = currentState[targetName] || { source_field: null, is_mandatory: false, prepopulated_value: '' };
         const init = initialState[targetName] || { source_field: null, is_mandatory: false, prepopulated_value: '' };
 
-        // Check if any field changed
         const sourceChanged = cur.source_field !== init.source_field;
         const mandatoryChanged = cur.is_mandatory !== init.is_mandatory;
         const prepopulatedChanged = cur.prepopulated_value !== init.prepopulated_value;
 
         if (sourceChanged || mandatoryChanged || prepopulatedChanged) {
-            // was_removed: source was previously set, now cleared, AND no prepopulated value (mandatory fields can't be removed)
             const was_removed = init.source_field !== null &&
                 (cur.source_field === null || cur.source_field === '') &&
                 (!cur.prepopulated_value || cur.prepopulated_value.trim() === '') &&
@@ -119,7 +105,6 @@ function detectChanges(currentState, initialState) {
                 is_mandatory: cur.is_mandatory,
                 prepopulated_value: cur.prepopulated_value || '',
                 was_removed: was_removed,
-                // Store initial values for deletion or reference
                 _initial_source: init.source_field,
                 _initial_mandatory: init.is_mandatory,
                 _initial_prepopulated: init.prepopulated_value
@@ -134,16 +119,10 @@ function detectChanges(currentState, initialState) {
 // 6. HIGHLIGHT ERROR ROWS
 // ============================================================
 
-/**
- * Highlights rows with validation errors
- * @param {Array} errors - Array of error objects with target_name
- */
 function highlightErrorRows(errors) {
-    // Clear previous highlights
     document.querySelectorAll('.table-danger').forEach(el => el.classList.remove('table-danger'));
 
     errors.forEach(err => {
-        // Find row by target name
         const row = document.querySelector(`tr:has(.source-select[data-target-name="${err.target_name}"])`);
         if (row) {
             row.classList.add('table-danger');
@@ -151,14 +130,10 @@ function highlightErrorRows(errors) {
     });
 }
 
-
 // ============================================================
 // 7. SCROLL TO FIRST ERROR
 // ============================================================
 
-/**
- * Scrolls to the first highlighted error row
- */
 function scrollToFirstError() {
     const firstErrorRow = document.querySelector('.table-danger');
     if (firstErrorRow) {
@@ -170,11 +145,6 @@ function scrollToFirstError() {
 // 8. SHOW VALIDATION ERRORS IN UI
 // ============================================================
 
-/**
- * Renders validation errors in the status area
- * @param {HTMLElement} statusDiv - The status div element
- * @param {Array} errors - Array of error objects
- */
 function renderValidationErrors(statusDiv, errors) {
     if (!statusDiv) return;
 
@@ -189,10 +159,13 @@ function renderValidationErrors(statusDiv, errors) {
 }
 
 // ============================================================
-// SAVE MAPPINGS – WITH TARGET NAME
+// SAVE MAPPINGS – WITH TARGET NAME + EDITABLE CONFIG + TRACE LOGS
 // ============================================================
 
 async function saveMappings() {
+    const TAG = '[saveMappings]';
+    console.log(`${TAG} ▶ START`);
+
     const saveBtn = document.getElementById('saveBtn');
     const statusDiv = document.getElementById('saveStatus');
 
@@ -204,10 +177,12 @@ async function saveMappings() {
     const data = getPageData();
     if (data?.supplierName) {
         supplierName = data.supplierName;
+        console.log(`${TAG} [1] supplierName from getPageData():`, supplierName);
     } else {
         const nameInput = document.getElementById('supplierName');
         if (nameInput) {
             supplierName = nameInput.value.trim();
+            console.log(`${TAG} [1] supplierName from #supplierName input:`, supplierName);
         }
     }
 
@@ -215,10 +190,12 @@ async function saveMappings() {
         const titleEl = document.getElementById('detailTitle');
         if (titleEl) {
             supplierName = titleEl.textContent?.trim() || '';
+            console.log(`${TAG} [1] supplierName from #detailTitle:`, supplierName);
         }
     }
 
     if (!supplierName) {
+        console.error(`${TAG} [1] ❌ supplierName not found — aborting`);
         statusDiv.innerHTML = '<span class="text-danger">❌ Supplier name not found. Please enter a name.</span>';
         showToast('Error', 'Supplier name not found', 'danger');
         return;
@@ -228,51 +205,132 @@ async function saveMappings() {
     // Step 2: Get page data
     // ============================================================
     const pageData = getPageData();
+    console.log(`${TAG} [2] pageData:`, pageData);
+
     // ============================================================
     // Step 3: Determine source fields
     // ============================================================
-    // ✅ Use backend source_fields if available, otherwise use parsedFileColumns
     let sourceFields = [];
 
     if (pageData?.sourceFields && pageData.sourceFields.length > 0) {
-        // Edit page: source_fields from backend
         sourceFields = pageData.sourceFields;
+        console.log(`${TAG} [3] sourceFields from pageData (backend):`, sourceFields.length);
     } else if (parsedFileColumns && parsedFileColumns.length > 0) {
-        // Add page: source_fields from parsed file
         sourceFields = parsedFileColumns;
+        console.log(`${TAG} [3] sourceFields from parsedFileColumns:`, sourceFields.length);
     } else {
-        // Fallback: try to get from data attribute
         const sourceFieldsEl = document.getElementById('page-data');
         if (sourceFieldsEl) {
             try {
                 const sourceData = JSON.parse(sourceFieldsEl.dataset.sourceFields || '[]');
                 if (sourceData.length > 0) {
                     sourceFields = sourceData;
+                    console.log(`${TAG} [3] sourceFields from #page-data fallback:`, sourceFields.length);
                 }
             } catch (e) {
-                console.warn('Could not parse source_fields from data attribute');
+                console.warn(`${TAG} [3] Could not parse source_fields from data attribute:`, e);
             }
         }
     }
+    console.log(`${TAG} [3] Final sourceFields:`, sourceFields);
+
+    // ============================================================
+    // Step 3b: Read editable config fields (TRACE FOCUS)
+    // ============================================================
+    // Fallback chain per field:
+    //   input element  →  pageData (edit page)  →  window.parsed* (create page)  →  default
+    console.log(`${TAG} [3b] ─── CONFIG FIELD TRACE BEGIN ───`);
+
+    const sheetNameInput = document.getElementById('sheetNameInput');
+    const headerRowInput = document.getElementById('headerRowInput');
+    const delimiterInput = document.getElementById('delimiterInput');
+
+    console.log(`${TAG} [3b] sheetNameInput element:`, sheetNameInput);
+    console.log(`${TAG} [3b] headerRowInput element:`, headerRowInput);
+    console.log(`${TAG} [3b] delimiterInput element:`, delimiterInput);
+    console.log(`${TAG} [3b] window.parsed*:`, {
+        parsedHeaderRowIndex: window.parsedHeaderRowIndex,
+        parsedSheetName: window.parsedSheetName,
+        parsedDelimiter: window.parsedDelimiter,
+    });
+
+    // ── sheet_name ──
+    const sheetName = sheetNameInput
+        ? (sheetNameInput.value.trim() || null)
+        : (pageData?.sheetName ?? window.parsedSheetName ?? null);
+
+    console.log(`${TAG} [3b] sheetName:`,
+        'input=', sheetNameInput?.value,
+        '| pageData=', pageData?.sheetName,
+        '| window.parsed=', window.parsedSheetName,
+        '| resolved=', sheetName);
+
+    // ── header_row_index ──
+    const headerRowRaw = headerRowInput
+        ? headerRowInput.value.trim()
+        : (pageData?.headerRowIndex ?? window.parsedHeaderRowIndex ?? '');
+
+    console.log(`${TAG} [3b] headerRowRaw:`,
+        'input=', headerRowInput?.value,
+        '| pageData=', pageData?.headerRowIndex,
+        '| window.parsed=', window.parsedHeaderRowIndex,
+        '| raw=', JSON.stringify(headerRowRaw));
+
+    const headerRowIndex = headerRowRaw !== '' && headerRowRaw != null
+        ? Number.parseInt(headerRowRaw, 10)
+        : 1;
+    console.log(`${TAG} [3b] headerRowIndex parsed:`,
+        headerRowIndex, '| typeof:', typeof headerRowIndex);
+
+    // ── delimiter ──
+    const delimiter = delimiterInput
+        ? (delimiterInput.value.trim() || ',')
+        : (pageData?.delimiter ?? window.parsedDelimiter ?? ',');
+
+    console.log(`${TAG} [3b] delimiter:`,
+        'input=', delimiterInput?.value,
+        '| pageData=', pageData?.delimiter,
+        '| window.parsed=', window.parsedDelimiter,
+        '| resolved=', delimiter);
+
+    console.log(`${TAG} [3b] ─── CONFIG FIELD TRACE END ───`);
 
     // ============================================================
     // Step 4: Collect current state from UI
     // ============================================================
     const currentState = collectMappingsFromUI();
+    console.log(`${TAG} [4] currentState keys:`, Object.keys(currentState).length);
 
     // ============================================================
     // Step 5: Ensure initialMappings exists
     // ============================================================
     if (!initialMappings || Object.keys(initialMappings).length === 0) {
         initialMappings = JSON.parse(JSON.stringify(currentState));
+        console.log(`${TAG} [5] initialMappings seeded from currentState`);
+    } else {
+        console.log(`${TAG} [5] initialMappings already exists:`,
+            Object.keys(initialMappings).length, 'keys');
     }
 
     // ============================================================
     // Step 6: Detect changes
     // ============================================================
     const changes = detectChanges(currentState, initialMappings);
+    console.log(`${TAG} [6] mapping changes detected:`, changes.length);
 
-    if (changes.length === 0) {
+    const configChanged =
+        (sheetName || null) !== (pageData?.sheetName || null) ||
+        (Number.isInteger(headerRowIndex) ? headerRowIndex : null) !== (pageData?.headerRowIndex ?? null) ||
+        (delimiter || ',') !== (pageData?.delimiter || ',');
+
+    console.log(`${TAG} [6] configChanged:`, configChanged, {
+        sheetName: { current: sheetName, original: pageData?.sheetName },
+        headerRowIndex: { current: headerRowIndex, original: pageData?.headerRowIndex },
+        delimiter: { current: delimiter, original: pageData?.delimiter },
+    });
+
+    if (changes.length === 0 && !configChanged) {
+        console.warn(`${TAG} [6] ⚠️ No changes — aborting save`);
         statusDiv.innerHTML = '<span class="text-info">ℹ️ No changes to save.</span>';
         showToast('Info', 'No changes to save', 'info');
         return;
@@ -282,7 +340,9 @@ async function saveMappings() {
     // Step 7: Validate mandatory fields
     // ============================================================
     const mandatoryErrors = validateMandatoryFields(currentState);
+    console.log(`${TAG} [7] mandatory errors:`, mandatoryErrors.length);
     if (mandatoryErrors.length > 0) {
+        console.error(`${TAG} [7] ❌ Mandatory validation failed:`, mandatoryErrors);
         highlightErrorRows(mandatoryErrors);
         renderValidationErrors(statusDiv, mandatoryErrors);
         showToast('Validation Error', `${mandatoryErrors.length} mandatory field(s) missing values.`, 'danger');
@@ -302,9 +362,10 @@ async function saveMappings() {
         is_mandatory: state.is_mandatory || false,
         prepopulated_value: state.prepopulated_value || ''
     }));
-
+    console.log(`${TAG} [8] mappingList length:`, mappingList.length);
 
     if (mappingList.length === 0) {
+        console.warn(`${TAG} [8] ⚠️ Empty mappingList — aborting`);
         statusDiv.innerHTML = '<span class="text-warning">⚠️ No valid mappings to save.</span>';
         showToast('Warning', 'No valid mappings to save.', 'warning');
         return;
@@ -327,24 +388,38 @@ async function saveMappings() {
         return true;
     }
 
+    const isNew = isNewSupplierPage();
+    console.log(`${TAG} [9] isNewSupplierPage:`, isNew);
+
     // ============================================================
     // Step 10: Build payload
     // ============================================================
     const payload = {
-        source_fields: sourceFields,  // ✅ Now uses backend source_fields
+        source_fields: sourceFields,
         mappings: mappingList,
-        is_new_supplier: isNewSupplierPage()
+        is_new_supplier: isNew,
+        sheet_name: sheetName,
+        header_row_index: Number.isInteger(headerRowIndex) ? headerRowIndex : 1,
+        delimiter: delimiter,
     };
 
+    console.log(`${TAG} [10] ─── FINAL PAYLOAD ───`);
+    console.log(`${TAG} [10] sheet_name:`, payload.sheet_name, `(typeof: ${typeof payload.sheet_name})`);
+    console.log(`${TAG} [10] header_row_index:`, payload.header_row_index, `(typeof: ${typeof payload.header_row_index})`);
+    console.log(`${TAG} [10] delimiter:`, payload.delimiter, `(typeof: ${typeof payload.delimiter})`);
+    console.log(`${TAG} [10] Full payload JSON:`, JSON.stringify(payload, null, 2));
 
     // ============================================================
     // Step 11: Send to backend
     // ============================================================
+    const url = `/api/mappings/${encodeURIComponent(supplierName)}`;
+    console.log(`${TAG} [11] POST →`, url);
+
     saveBtn.disabled = true;
     statusDiv.innerHTML = `<span class="text-info">⏳ Saving ${mappingList.length} mapping(s)...</span>`;
 
     try {
-        const response = await fetch(`/api/mappings/${encodeURIComponent(supplierName)}`, {
+        const response = await fetch(url, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
@@ -352,6 +427,7 @@ async function saveMappings() {
             body: JSON.stringify(payload)
         });
 
+        console.log(`${TAG} [11] Response status:`, response.status, response.statusText);
 
         if (!response.ok) {
             let errorMessage = `HTTP ${response.status}`;
@@ -359,7 +435,7 @@ async function saveMappings() {
 
             try {
                 const errorData = await response.json();
-                console.error('📌 Backend error response:', errorData);
+                console.error(`${TAG} [11] ❌ Backend error response:`, errorData);
                 errorDetail = errorData;
                 errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
             } catch (e) {
@@ -370,6 +446,8 @@ async function saveMappings() {
         }
 
         const result = await response.json();
+        console.log(`${TAG} [11] ✅ Save success. Response:`, result);
+        console.log(`${TAG} [11] ⚠️ Console will clear after redirect in 1.5s — capture logs now.`);
 
         hasChanges = false;
         updateSaveButton();
@@ -379,15 +457,19 @@ async function saveMappings() {
         saveBtn.innerHTML = '<i class="bi bi-save"></i> Save Changes';
 
         setTimeout(() => {
+            const redirectUrl = result.supplier_id
+                ? `/show-mapping/${result.supplier_id}`
+                : window.location.href;
+            console.log(`${TAG} [11] Redirecting →`, redirectUrl);
             if (result.supplier_id) {
-                window.location.href = `/show-mapping/${result.supplier_id}`;
+                window.location.href = redirectUrl;
             } else {
                 window.location.reload();
             }
         }, 1500);
 
     } catch (error) {
-        console.error('❌ Save failed:', error);
+        console.error(`${TAG} [11] ❌ Save failed:`, error);
 
         const errorMsg = error.detail ? JSON.stringify(error.detail) : error.message;
         statusDiv.innerHTML = `<span class="text-danger">❌ ${errorMsg}</span>`;
@@ -399,10 +481,6 @@ async function saveMappings() {
 
 /**
  * Validates mandatory fields in the current state.
- * Returns an array of errors for mandatory fields missing both source and prepopulated value.
- * @param {Object} currentState - from collectMappingsFromUI()
- * @param {Object} targetFieldsMap - optional mapping of target_id to is_nullable? We can use currentState's is_mandatory flag.
- * @returns {Array} errors - [{ target_name, message }]
  */
 function validateMandatoryFields(currentState) {
     const errors = [];
@@ -428,7 +506,6 @@ window.validateMandatoryFields = validateMandatoryFields;
 // 10. EXPOSE TO GLOBAL SCOPE (for use in other scripts)
 // ============================================================
 
-// Make functions available globally
 window.collectMappingsFromUI = collectMappingsFromUI;
 window.detectChanges = detectChanges;
 window.highlightErrorRows = highlightErrorRows;

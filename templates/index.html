@@ -9,24 +9,36 @@
   <div id="status"></div>
 
   <div class="form-group">
-    <label>File:</label>
-    <input type="file" id="fileInput" accept=".csv,.xlsx,.xls" />
-    <div id="fileInfo" class="mt-2" style="display:none;">
-      <span id="fileName" class="badge bg-info text-dark"></span>
-      <span id="fileSize" class="badge bg-secondary ms-1"></span>
-      <span id="fileStatus" class="badge bg-warning text-dark ms-1">⏳ Parsing...</span>
-    </div>
-  </div>
+  <label for="supplierInput">Supplier:</label>
+  <select id="supplierInput" class="form-select" style="width:auto; display:inline-block;">
+    <option value="">— select —</option>
+    {% for s in suppliers %}
+      <option value="{{ s[0] }}"
+              data-supplier-id="{{ s[0] }}"
+              data-supplier-name="{{ s[1] }}"
+              data-header-row-index="{{ s[8] if s[8] is not none else 1 }}"
+              data-sheet-name="{{ s[9] or '' }}"
+              data-delimiter="{{ s[10] or ',' }}">
+        {{ s[1] }}
+      </option>
+    {% endfor %}
+  </select>
+
+  <!-- ✅ Config hint (populated by JS) -->
+  <div id="supplierConfigHint" class="mt-2" style="display:none;"></div>
+</div>
 
   <div class="form-group">
-    <label>Supplier:</label>
-    <select id="supplierInput" class="form-select" style="width:auto; display:inline-block;">
-      <option value="">— select —</option>
-      {% for id, name in suppliers %}
-        <option value="{{ id }}">{{ name }}</option>
-      {% endfor %}
-    </select>
-  </div>
+  <label for="fileInput">File:</label>
+  <input type="file"
+         id="fileInput"
+         class="form-control"
+         accept=".csv,.xlsx,.xls"
+         disabled>
+
+  <!-- ✅ New: gate hint (populated by JS) -->
+  <div id="fileGateHint" class="mt-1"></div>
+</div>
 
   <div class="form-group">
     <label>Dry run:</label>

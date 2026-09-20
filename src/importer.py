@@ -77,7 +77,10 @@ class MyfactoryImporter:
         return self._target_columns
 
     def import_file(
-        self, config: Union[ImportConfigDTO, Dict[str, Any]]
+        self,
+        config: Union[ImportConfigDTO, Dict[str, Any]],
+        header_row_index: Optional[int] = None,
+        sheet_name: Optional[str] = None,
     ) -> ImportResultDTO:
         # Convert dict to DTO if needed
         if isinstance(config, dict):
@@ -136,7 +139,7 @@ class MyfactoryImporter:
             )
 
             # 1. Read file (single call, resolved config)
-            df = self._read_file(
+            df, available_sheets = self._read_file(
                 file_path=config.file_path,
                 delimiter=config.delimiter,
                 header_row_index=header_row_index,
@@ -219,6 +222,7 @@ class MyfactoryImporter:
             raise FileNotFoundError(f"File not found: {file_path}")
 
         ext = path.suffix.lower()
+        available_sheets = []
 
         try:
             if ext == ".csv":
@@ -226,7 +230,9 @@ class MyfactoryImporter:
                     logger.warning(f"sheet_name='{sheet_name}' ignored for CSV file")
                 df = self._read_csv(path, delimiter, header_row_index)
             elif ext in [".xlsx", ".xls"]:
-                df = self._read_excel(path, sheet_name, header_row_index)
+                df, available_sheets = self._read_excel(
+                    path, sheet_name, header_row_index
+                )
             else:
                 raise ValueError(
                     f"Unsupported file type: {ext}. Please use CSV or Excel."
@@ -238,7 +244,7 @@ class MyfactoryImporter:
             logger.info(f"✅ Read {len(df)} rows, {len(df.columns)} columns")
             logger.info(f"   Columns: {list(df.columns)}")
 
-            return df
+            return df, available_sheets
 
         except Exception as e:
             logger.error(f"Failed to read file: {e}")
@@ -285,7 +291,7 @@ class MyfactoryImporter:
         """Read Excel with optional sheet selection and custom header row."""
         skip = max(header_row_index - 1, 0)
 
-        available_sheets = self.read_sheets(path)
+        available_sheets = self.list_excel_sheets(path)
         effective_sheet = sheet_name
         if sheet_name and sheet_name not in available_sheets:
             logger.warning(

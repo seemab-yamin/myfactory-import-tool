@@ -58,7 +58,8 @@ async function renderMappings() {
         }
 
         let html = '';
-        for (const [id, name] of suppliers) {
+        for (const [id, name, source_fields, mappings, created_at, updated_at, schema_changed_at, schema_changed_flag, header_row_index, sheet_name, delimiter
+        ] of suppliers) {
             html += `
                 <div class="col-md-3 col-sm-6">
                     <div class="card mapping-card">

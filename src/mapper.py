@@ -104,6 +104,9 @@ class FieldMapper:
         source_fields: List[str],
         mappings: List[dict],
         is_new_supplier: bool = False,
+        header_row_index: Optional[int] = None,
+        sheet_name: Optional[str] = None,
+        delimiter: str = ",",
     ):
         """
         Save mappings for a supplier.
@@ -131,6 +134,9 @@ class FieldMapper:
                     name=supplier_name,
                     source_fields=source_fields,
                     mappings=mappings_dict,
+                    header_row_index=header_row_index,
+                    sheet_name=sheet_name,
+                    delimiter=delimiter,
                 )
                 session.add(sup)
                 session.flush()
@@ -169,6 +175,9 @@ class FieldMapper:
                 sup.source_fields = source_fields
                 sup.mappings = mappings_dict
                 sup.updated_at = datetime.now(timezone.utc)
+                sup.header_row_index = header_row_index
+                sup.sheet_name = sheet_name
+                sup.delimiter = delimiter
                 supplier_id = sup.id  # Ensure supplier_id is set for return
                 logger.info(
                     f"Updated mapping: name={supplier_name}, "
@@ -214,11 +223,24 @@ class FieldMapper:
         """Get list of all supplier names with mappings."""
         with local_session() as session:
             # fetch supplier id and name from Supplier table, ordered by name
-            suppliers = (
-                session.query(Supplier.id, Supplier.name).order_by(Supplier.name).all()
-            )
-            suppliers = [(s.id, s.name) for s in suppliers]  # Convert to list of tuples
-            return suppliers  # Return list of tuples (id, name) for better clarity
+            suppliers = session.query(Supplier).order_by(Supplier.name).all()
+            suppliers = [
+                (
+                    s.id,
+                    s.name,
+                    s.source_fields,
+                    s.mappings,
+                    s.created_at,
+                    s.updated_at,
+                    s.schema_changed_at,
+                    s.schema_changed_flag,
+                    s.header_row_index,
+                    s.sheet_name,
+                    s.delimiter,
+                )
+                for s in suppliers
+            ]  # Convert to list of tuples
+            return suppliers
 
     def get_supplier_by_id(self, supplier_id: int) -> Optional[Dict[str, Any]]:
         """
@@ -248,6 +270,8 @@ class FieldMapper:
                 "updated_at": (
                     supplier.updated_at.isoformat() if supplier.updated_at else None
                 ),
+                "header_row_index": supplier.header_row_index,
+                "sheet_name": supplier.sheet_name,
             }
 
     def get_source_fields(self, supplier_id: int) -> Optional[List[str]]:

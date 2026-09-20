@@ -29,23 +29,68 @@
     </div>
 
     <!-- ===== STEP 2: Upload Sample File ===== -->
-    <div class="card mb-4">
+    <div class="card mb-4" data-step="2">
       <div class="card-header bg-light">
         <strong>Step 2:</strong> Upload Sample File (CSV/Excel)
       </div>
       <div class="card-body">
-        <div class="row align-items-end">
-          <div class="col-md-5">
+        <!-- Row 1: File picker -->
+        <div class="row align-items-end mb-3">
+          <div class="col-md-6">
             <label for="sampleFile" class="form-label">Sample File <span class="text-danger">*</span></label>
             <input type="file" id="sampleFile" class="form-control" accept=".csv,.xlsx,.xls" />
+            <div id="fileTypeHint" class="form-text"></div>
+          </div>
+        </div>
+
+        <!-- Row 2: Sheet selector (Excel only, hidden by default) -->
+        <div class="row align-items-end mb-3" id="sheetSelectorRow" style="display:none;">
+          <div class="col-md-5">
+            <label for="sheetSelect" class="form-label">Sheet Name</label>
+            <select id="sheetSelect" class="form-select">
+              <option value="">— Select a sheet —</option>
+            </select>
+            <div id="sheetStatus" class="form-text"></div>
           </div>
           <div class="col-md-3">
-            <button id="parseFileBtn" class="btn btn-primary" onclick="parseSampleFile()"><i class="bi bi-upload"></i> Upload & Parse</button>
+            <button id="fetchSheetsBtn" class="btn btn-outline-primary" onclick="fetchSheets()" disabled><i class="bi bi-list-ul"></i> Fetch Sheets</button>
           </div>
-          <div class="col-md-4">
+        </div>
+
+        <!-- Row 3: Header row index -->
+        <div class="row align-items-end mb-3">
+          <div class="col-md-3">
+            <label for="headerRowIndex" class="form-label">Header Row Number</label>
+            <input type="number" id="headerRowIndex" class="form-control" value="1" min="1" />
+            <div class="form-text">Row where headers start (default 1)</div>
+          </div>
+        </div>
+
+        <!-- Row 3b: Delimiter (CSV only) -->
+        <div class="row align-items-end mb-3" id="delimiterRow" style="display:none;">
+          <div class="col-md-3">
+            <label for="delimiterInput" class="form-label">Delimiter</label>
+            <select id="delimiterInput" class="form-select">
+              <option selected value=",">Comma (,)</option>
+              <option value=";">Semicolon (;)</option>
+              <option value="&#9;">Tab (\t)</option>
+              <option value="|">Pipe (|)</option>
+            </select>
+            <div class="form-text">Only used for CSV files</div>
+          </div>
+        </div>
+
+        <!-- Row 4: Parse button -->
+        <div class="row align-items-end">
+          <div class="col-md-3">
+            <button id="parseFileBtn" class="btn btn-primary" onclick="parseSampleFile()" disabled><i class="bi bi-upload"></i> Upload &amp; Parse</button>
+          </div>
+          <div class="col-md-6">
             <div id="parseStatus" class="form-text"></div>
           </div>
         </div>
+
+        <!-- Preview table -->
         <div id="filePreview" class="mt-3" style="display:none;">
           <h6>📄 File Preview (first 5 rows)</h6>
           <div class="table-responsive">
@@ -115,6 +160,6 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', path='js/mapping_utils.js') }}"></script>
+  <script src="{{ url_for('static', path='js/mapping_utils.js') }}"></script>
   <script src="{{ url_for('static', path='js/add_mapping.js') }}"></script>
 {% endblock %}

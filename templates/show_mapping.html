@@ -9,7 +9,63 @@
       <div class="card-header bg-light d-flex justify-content-between align-items-center">
         <div>
           <a href="/mappings-list" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</a>
-          <span id="detailTitle" class="ms-3"><strong>{{ supplier_name or 'Supplier #' + supplier_id|string }}</strong></span>
+          <span id="detailTitle" class="ms-3 d-inline-flex align-items-center gap-2 flex-wrap">
+  <strong>{{ supplier_name or 'Supplier #' + supplier_id|string }}</strong>
+
+  {# ✅ Editable: Sheet Name #}
+  <div class="input-group input-group-sm" style="width: auto;">
+    <span class="input-group-text" title="Source sheet">
+      <i class="bi bi-file-earmark-spreadsheet"></i>
+    </span>
+    <input type="text"
+           class="form-control form-control-sm"
+           id="sheetNameInput"
+           placeholder="Sheet name"
+           value="{{ sheet_name or '' }}"
+           style="width: 140px;">
+  </div>
+
+  {# ✅ Editable: Header Row Index #}
+  <div class="input-group input-group-sm" style="width: auto;">
+    <span class="input-group-text" title="Header row index">
+      <i class="bi bi-list-ol"></i>
+    </span>
+    <input type="number"
+           class="form-control form-control-sm"
+           id="headerRowInput"
+           min="1"
+           placeholder="1"
+           value="{{ header_row_index if header_row_index is not none else 1 }}"
+           style="width: 80px;">
+  </div>
+
+  {# ✅ Editable: Delimiter #}
+  <div class="input-group input-group-sm" style="width: auto;">
+    <span class="input-group-text" title="Delimiter">
+      <i class="bi bi-asterisk"></i>
+    </span>
+    <input type="text"
+           class="form-control form-control-sm"
+           id="delimiterInput"
+           maxlength="5"
+           placeholder=","
+           value="{{ delimiter or ',' }}"
+           style="width: 60px;">
+  </div>
+
+
+  {% if created_at %}
+    <small class="text-muted" title="Created at">
+      <i class="bi bi-calendar-plus"></i> {{ created_at[:19]|replace('T', ' ') }}
+    </small>
+  {% endif %}
+
+  {% if updated_at %}
+    <small class="text-muted" title="Last updated">
+      <i class="bi bi-calendar-check"></i> {{ updated_at[:19]|replace('T', ' ') }}
+    </small>
+  {% endif %}
+</span>
         </div>
         <div>
           <button class="btn btn-sm btn-outline-danger" onclick="deleteSupplier({{ supplier_id }}, '{{ supplier_name or supplier_id }}')"><i class="bi bi-trash"></i> Delete Supplier</button>
