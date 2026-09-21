@@ -471,6 +471,26 @@ async def api_delete_supplier(supplier_id: int):
     }
 
 
+@router.get("/api/imports/{import_id}")
+async def get_import_by_import_id(import_id: str):
+    """Look up an import audit by its frontend-generated import_id."""
+    if not ensure_configured():
+        raise HTTPException(status_code=400, detail="Database not configured.")
+
+    from src.db import local_session
+    from src.models import ImportAudit
+
+    with local_session() as session:
+        audit = (
+            session.query(ImportAudit)
+            .filter(ImportAudit.import_id == import_id)
+            .first()
+        )
+        if not audit:
+            raise HTTPException(status_code=404, detail=f"Import {import_id} not found")
+        return audit.to_dict()
+
+
 @router.post("/setup")
 async def run_setup():
     """Run interactive setup via API."""
