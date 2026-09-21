@@ -186,6 +186,9 @@ class ImportAudit(Base):
     )
 
     id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
+    import_id: Mapped[Optional[str]] = mapped_column(  # ✅ NEW
+        String(36), nullable=True, unique=True, index=True
+    )
     supplier_name: Mapped[str] = mapped_column(String(100), nullable=False)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
@@ -221,6 +224,7 @@ class ImportAudit(Base):
         """Convert to dictionary for serialization."""
         return {
             "id": self.id,
+            "import_id": self.import_id,
             "supplier_name": self.supplier_name,
             "file_name": self.file_name,
             "file_path": self.file_path,
@@ -244,11 +248,13 @@ class ImportAudit(Base):
         cls,
         supplier_name: str,
         file_path: str,
+        import_id: Optional[str] = None,
         table_name: str = "tdProducts",
         dry_run: bool = False,
     ) -> "ImportAudit":
         """Create a new audit record for an import."""
         return cls(
+            import_id=import_id,
             supplier_name=supplier_name,
             file_name=Path(file_path).name,
             file_path=str(file_path),
@@ -314,7 +320,11 @@ class ImportConfigDTO:
     batch_size: int = 100
     dry_run: bool = False
     table_name: str = "tdProducts"
-    supplier_name: str = "default"
+    supplier_id: Optional[int] = None
+    import_id: Optional[str] = None
+    skip_header: bool = True
+    supplier_name: Optional[str] = "default"
+
     header_row_index: int = 1
     sheet_name: Optional[str] = None
 
@@ -322,12 +332,14 @@ class ImportConfigDTO:
         """Convert to dictionary."""
         return {
             "file_path": self.file_path,
+            "import_id": self.import_id,
             "mapping": self.mapping,
             "delimiter": self.delimiter,
             "batch_size": self.batch_size,
             "dry_run": self.dry_run,
             "table_name": self.table_name,
             "supplier_name": self.supplier_name,
+            "supplier_id": self.supplier_id,
             "header_row_index": self.header_row_index,
             "sheet_name": self.sheet_name,
         }

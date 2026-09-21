@@ -144,10 +144,13 @@ async def mappings_page(request: Request, supplier_id: int):
             "supplier_mappings": (
                 supplier.get("mappings") if supplier.get("mappings") else {}
             ),
-            "header_row_index": supplier.get("header_row_index"),
-            "sheet_name": supplier.get("sheet_name"),
             "created_at": supplier.get("created_at"),
             "updated_at": supplier.get("updated_at"),
+            "schema_changed_flag": supplier.get("schema_changed_flag"),
+            "schema_changed_at": supplier.get("schema_changed_at"),
+            "header_row_index": supplier.get("header_row_index"),
+            "sheet_name": supplier.get("sheet_name"),
+            "delimiter": supplier.get("delimiter"),
         },
     )
 
@@ -269,6 +272,7 @@ async def upload_file(
     # ============================================================
 
     if dry_run:
+        logger.info(f"Starting dry-run import for supplier_id={supplier_id}")
         try:
             importer = get_importer()
             result = importer.import_file(

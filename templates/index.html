@@ -2,44 +2,33 @@
 {% block title %}
   Home - MyFactory Import Tool
 {% endblock %}
+
 {% block content %}
   <h1>🚀 MyFactory Import Tool</h1>
   <p>Upload CSV/Excel files and import to Myfactory CRM</p>
 
   <div id="status"></div>
 
+  {# ── Supplier dropdown ── #}
   <div class="form-group">
-  <label for="supplierInput">Supplier:</label>
-  <select id="supplierInput" class="form-select" style="width:auto; display:inline-block;">
-    <option value="">— select —</option>
-    {% for s in suppliers %}
-      <option value="{{ s[0] }}"
-              data-supplier-id="{{ s[0] }}"
-              data-supplier-name="{{ s[1] }}"
-              data-header-row-index="{{ s[8] if s[8] is not none else 1 }}"
-              data-sheet-name="{{ s[9] or '' }}"
-              data-delimiter="{{ s[10] or ',' }}">
-        {{ s[1] }}
-      </option>
-    {% endfor %}
-  </select>
+    <label for="supplierInput">Supplier:</label>
+    <select id="supplierInput" class="form-select" style="width:auto; display:inline-block;">
+      <option value="">— select —</option>
+      {% for s in suppliers %}
+        <option value="{{ s[0] }}"
+                data-supplier-id="{{ s[0] }}"
+                data-supplier-name="{{ s[1] }}"
+                data-header-row-index="{{ s[8] if s[8] is not none else 1 }}"
+                data-sheet-name="{{ s[9] or '' }}"
+                data-delimiter="{{ s[10] or ',' }}">
+          {{ s[1] }}
+        </option>
+      {% endfor %}
+    </select>
+    <div id="supplierConfigHint" class="mt-2" style="display:none;"></div>
+  </div>
 
-  <!-- ✅ Config hint (populated by JS) -->
-  <div id="supplierConfigHint" class="mt-2" style="display:none;"></div>
-</div>
-
-  <div class="form-group">
-  <label for="fileInput">File:</label>
-  <input type="file"
-         id="fileInput"
-         class="form-control"
-         accept=".csv,.xlsx,.xls"
-         disabled>
-
-  <!-- ✅ New: gate hint (populated by JS) -->
-  <div id="fileGateHint" class="mt-1"></div>
-</div>
-
+  {# ── Options ── #}
   <div class="form-group">
     <label>Dry run:</label>
     <input type="checkbox" id="dryRunInput" checked />
@@ -48,11 +37,29 @@
     <label for="batchSizeInput">Batch size</label>
     <input type="number" id="batchSizeInput" value="1000" />
   </div>
+  
+  {# ── File input ── #}
+  <div class="form-group">
+    <label for="fileInput">File:</label>
+    <input type="file" id="fileInput" class="form-control" accept=".csv,.xlsx,.xls" disabled>
+    <div id="fileGateHint" class="mt-1"></div>
+  </div>
 
-  <button id="importBtn" onclick="uploadFile()" class="btn btn-primary" disabled><i class="bi bi-upload"></i> Upload & Import</button>
+
+  {# ── File info badge ── #}
+  <div id="fileInfo" style="display:none;" class="mt-2">
+    <strong id="fileName"></strong>
+    <span id="fileSize" class="text-muted ms-2"></span>
+    <span id="fileStatus" class="badge ms-1"></span>
+  </div>
+
+  {# ── Action buttons ── #}
+  <button id="importBtn" onclick="uploadFile()" class="btn btn-primary" disabled>
+    <i class="bi bi-upload"></i> Upload & Import
+  </button>
   <button onclick="clearResult()" class="btn btn-secondary" style="margin-left:10px;">Clear</button>
 
-  <!-- File Preview Table -->
+  {# ── Preview ── #}
   <div id="previewContainer" style="display:none; margin-top:20px;">
     <h6>📄 File Preview (first 5 rows)</h6>
     <div class="table-responsive">
@@ -64,6 +71,7 @@
     <div id="previewStats" class="text-muted small"></div>
   </div>
 
+  {# ── Result ── #}
   <div id="result" class="result">
     <p class="text-muted">Ready to import...</p>
   </div>

@@ -35,43 +35,44 @@ class FieldMapper:
         """
         Get all mappings for a supplier with full details.
 
-        Args:
-            supplier_id: ID of the supplier
-            active_only: Only return active mappings
+        Reads from Supplier.mappings JSON (dict keyed by target_field_name).
 
         Returns:
-            List of dictionaries with keys:
-                - source_field: str
-                - target_field: str (field name)
-                - target_field_id: int
+            List of dicts with keys:
+                - source_field: str | None
+                - target_field: str (target field name — the dict key)
                 - is_mandatory: bool
                 - is_active: bool
-                - prepopulated_value: str or None
+                - prepopulated_value: str | None
         """
 
-        # Check cache first
         cache_key = f"{supplier_id}_{active_only}"
         if cache_key in self._cache:
             return self._cache[cache_key]
 
         with local_session() as session:
-            query = session.query(Supplier).filter(Supplier.id == supplier_id)
+            supplier = (
+                session.query(Supplier).filter(Supplier.id == supplier_id).first()
+            )
 
-            # ✅ Build list of dicts with all fields
             mappings = []
-            for m in query.all():
-                mappings.append(
-                    {
-                        "source_field": m.source_field,
-                        "target_field": (
-                            m.target_field.field_name if m.target_field else None
-                        ),
-                        "target_field_id": m.target_field_id,
-                        "is_mandatory": m.is_mandatory,
-                        "is_active": m.is_active,
-                        "prepopulated_value": m.prepopulated_value,
-                    }
-                )
+            if supplier and supplier.mappings:
+                raw = supplier.mappings  # dict: {target_name: {...}}
+
+                for target_name, m in raw.items():
+                    # active_only: skip inactive
+                    if active_only and not m.get("is_active", True):
+                        continue
+
+                    mappings.append(
+                        {
+                            "source_field": m.get("source_field"),
+                            "target_field": target_name,  # key is the target name
+                            "is_mandatory": m.get("is_mandatory", False),
+                            "is_active": m.get("is_active", True),
+                            "prepopulated_value": m.get("prepopulated_value"),
+                        }
+                    )
 
             self._cache[cache_key] = mappings
             return mappings
@@ -270,8 +271,15 @@ class FieldMapper:
                 "updated_at": (
                     supplier.updated_at.isoformat() if supplier.updated_at else None
                 ),
+                "schema_changed_flag": supplier.schema_changed_flag,
+                "schema_changed_at": (
+                    supplier.schema_changed_at.isoformat()
+                    if supplier.schema_changed_at
+                    else None
+                ),
                 "header_row_index": supplier.header_row_index,
                 "sheet_name": supplier.sheet_name,
+                "delimiter": supplier.delimiter,
             }
 
     def get_source_fields(self, supplier_id: int) -> Optional[List[str]]:

@@ -24,24 +24,30 @@ logger = get_logger(__name__)
 
 
 def run_import(
+    import_id: str,
     file_path,
-    supplier,
-    dry_run,
-    batch_size,
+    supplier_id=None,
+    supplier=None,
+    dry_run=False,
+    batch_size=1000,
     header_row_index=None,
     sheet_name=None,
 ):
     importer = get_importer()
-    return importer.import_file(
-        {
-            "file_path": str(file_path),
-            "supplier_name": supplier,
-            "dry_run": dry_run,
-            "batch_size": batch_size,
-            "header_row_index": header_row_index,
-            "sheet_name": sheet_name,
-        }
-    )
+    payload = {
+        "file_path": str(file_path),
+        "import_id": import_id,
+        "dry_run": dry_run,
+        "batch_size": batch_size,
+        "header_row_index": header_row_index,
+        "sheet_name": sheet_name,
+    }
+    if supplier_id is not None:
+        payload["supplier_id"] = supplier_id
+    else:
+        payload["supplier_name"] = supplier
+
+    return importer.import_file(payload)
 
 
 class MyfactoryImporter:
@@ -81,6 +87,7 @@ class MyfactoryImporter:
         config: Union[ImportConfigDTO, Dict[str, Any]],
         header_row_index: Optional[int] = None,
         sheet_name: Optional[str] = None,
+        delimiter: Optional[str] = None,
     ) -> ImportResultDTO:
         # Convert dict to DTO if needed
         if isinstance(config, dict):
@@ -88,16 +95,50 @@ class MyfactoryImporter:
 
         logger.info("=" * 60)
         logger.info(f"🚀 Starting import from: {config.file_path}")
-        logger.info(f"   Supplier: {config.supplier_name}")
+        logger.info(f"   Supplier: id={config.supplier_id} name={config.supplier_name}")
         logger.info(f"   Table: {config.table_name}")
         logger.info(f"   Dry run: {config.dry_run}")
         logger.info(f"   Batch size: {config.batch_size}")
         logger.info("=" * 60)
 
+        # ── Resolve supplier (DB source of truth) ──
+        supplier = None
+        if config.supplier_id is not None:
+            supplier = self.mapper.get_supplier_by_id(config.supplier_id)
+            if supplier:
+                config.supplier_name = supplier.get("name") or config.supplier_name
+            else:
+                raise ValueError(
+                    f"Supplier id={config.supplier_id} not found. "
+                    "Please create it via Add Supplier first."
+                )
+        elif config.supplier_name:
+            supplier = self.mapper.get_supplier(config.supplier_name)
+            if not supplier:
+                raise ValueError(
+                    f"Supplier '{config.supplier_name}' not found. "
+                    "Please create it via Add Supplier first."
+                )
+        else:
+            raise ValueError("Neither supplier_id nor supplier_name was provided.")
+
+        # ── Normalize supplier shape (dict vs ORM) ──
+        if isinstance(supplier, dict):
+            supplier_id = supplier.get("id")
+            db_header_row = supplier.get("header_row_index") or 1
+            db_sheet_name = supplier.get("sheet_name")
+            db_delimiter = supplier.get("delimiter") or ","
+        else:
+            supplier_id = supplier.id
+            db_header_row = supplier.header_row_index or 1
+            db_sheet_name = supplier.sheet_name
+            db_delimiter = supplier.delimiter or ","
+
         # Create audit record
         audit = ImportAudit.create_from_import(
             supplier_name=config.supplier_name,
             file_path=config.file_path,
+            import_id=config.import_id,
             table_name=config.table_name,
             dry_run=config.dry_run,
         )
@@ -107,43 +148,25 @@ class MyfactoryImporter:
             audit_id = audit.id
 
         try:
-            # ── Resolve supplier (DB source of truth) ──
-            supplier = self.mapper.get_supplier(config.supplier_name)
-            if not supplier:
-                raise ValueError(
-                    f"Supplier '{config.supplier_name}' not found. "
-                    "Please create it via Add Supplier first."
-                )
-
-            supplier_id = supplier.id
-            db_header_row = supplier.header_row_index if supplier else 1
-            db_sheet_name = supplier.sheet_name if supplier else None
-
-            # ── Resolve Excel/CSV config: DTO override → DB → default ──
-            header_row_index = (
-                config.header_row_index
-                if config.header_row_index is not None
-                else db_header_row
+            # ── Resolve final config: explicit arg → DTO → DB → default ──
+            resolved_header_row = (
+                header_row_index if header_row_index is not None else db_header_row
             )
-            sheet_name = (
-                config.sheet_name if config.sheet_name is not None else db_sheet_name
+            resolved_sheet_name = (
+                sheet_name if sheet_name is not None else db_sheet_name
             )
+            resolved_delimiter = delimiter if delimiter else db_delimiter
 
-            logger.info(
-                f"   header_row_index={header_row_index} (source: "
-                f"{'DTO' if config.header_row_index is not None else 'DB'})"
-            )
-            logger.info(
-                f"   sheet_name={sheet_name} (source: "
-                f"{'DTO' if config.sheet_name is not None else 'DB'})"
-            )
+            logger.info(f"   header_row_index={resolved_header_row} ")
+            logger.info(f"   sheet_name={resolved_sheet_name} ")
+            logger.info(f"   delimiter='{resolved_delimiter}' ")
 
-            # 1. Read file (single call, resolved config)
+            # 1. Read file
             df, available_sheets = self._read_file(
                 file_path=config.file_path,
-                delimiter=config.delimiter,
-                header_row_index=header_row_index,
-                sheet_name=sheet_name,
+                delimiter=resolved_delimiter,
+                header_row_index=resolved_header_row,
+                sheet_name=resolved_sheet_name,
             )
 
             # 2. Get mapping
@@ -163,7 +186,7 @@ class MyfactoryImporter:
             # 3. Apply mapping
             mapped_df = self._apply_mapping(df, mapping)
 
-            # 4. Validate against target schema
+            # 4. Validate schema
             validated_df, errors = self._validate_schema(mapped_df)
 
             # 5. Dry run or actual import
