@@ -24,7 +24,6 @@ from src.db import get_db_manager, local_session
 from src.importer import get_importer, run_import
 from src.logger import get_logger
 from src.mapper import get_mapper
-from src.schema_scanner import get_scanner
 from src.services.schema_drift_service import SchemaDriftService
 
 logger = get_logger(__name__)
