@@ -50,9 +50,7 @@ class AppSettings:
     # Import Settings
     default_products_table: str = "tdProducts"
     default_supplier: str = "default"
-    default_delimiter: str = ","
     default_batch_size: int = 1000
-    skip_header: bool = True
 
     # Logging
     log_level: str = "INFO"
@@ -88,9 +86,7 @@ class AppSettings:
             "auth_method": self.auth_method,
             "default_products_table": self.default_products_table,
             "default_supplier": self.default_supplier,
-            "default_delimiter": self.default_delimiter,
             "default_batch_size": self.default_batch_size,
-            "skip_header": self.skip_header,
             "log_level": self.log_level,
             "log_max_bytes": self.log_max_bytes,
             "log_backup_count": self.log_backup_count,
