@@ -11,3 +11,4 @@ python-multipart
 jinja2
 starlette
 rich
+rapidfuzz

@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
-
+from rapidfuzz import fuzz
 from src.db import local_session
 from src.logger import get_logger
 from src.models import Supplier, TargetField
@@ -323,6 +323,172 @@ class FieldMapper:
                 for tf in target_fields
             ]
 
+    # ============================================================
+    # AUTO-MATCH FIELDS
+    # ============================================================
+
+    def auto_match_fields(
+        self,
+        source_columns: List[str],
+        target_fields: List[str],
+    ) -> Dict[str, Dict[str, Any]]:
+        """
+        Deterministic + fuzzy field auto-matching.
+
+        Returns:
+            {
+                target_field_name: {
+                    "source_column": str,
+                    "match_type": "exact" | "case_insensitive" | "normalized" | "fuzzy",
+                    "score": float,   # 1.0 for deterministic; 0.70–1.0 for fuzzy
+                }
+            }
+
+        Priority (per target, first match wins):
+            1. Exact match (case-sensitive)         → match_type="exact",           score=1.0
+            2. Case-insensitive match               → match_type="case_insensitive", score=1.0
+            3. Normalized match (lower, strip,
+            spaces → underscores)                → match_type="normalized",       score=1.0
+            4. Fuzzy (rapidfuzz.ratio) with
+            dynamic threshold + best-gap rule    → match_type="fuzzy",            score=0.70–1.0
+
+        Rules:
+            - A source column can be matched to only ONE target.
+            - Deterministic passes (1–3) always run before fuzzy.
+            - Fuzzy pass only considers targets still unmatched after Pass 3.
+            - Fuzzy pass requires:
+                best_score >= dynamic_threshold(target)
+                AND (best_score - second_best_score) > 0.05
+            - Unmatched targets are omitted.
+            - Duplicate source column names are deduplicated (first wins).
+
+        Logs:
+            Per-category match counts (exact / case_insensitive / normalized / fuzzy)
+            and total unmatched targets + unused sources.
+        """
+        if not source_columns or not target_fields:
+            return {}
+
+        # ---------- Deduplicate sources (preserve order, first wins) ----------
+        seen = set()
+        unique_sources: List[str] = []
+        for src in source_columns:
+            if not isinstance(src, str) or not src.strip():
+                continue
+            if src in seen:
+                logger.warning(f"Duplicate source column ignored: '{src}'")
+                continue
+            seen.add(src)
+            unique_sources.append(src)
+
+        if not unique_sources:
+            return {}
+
+        suggestions: Dict[str, Dict[str, Any]] = {}
+        available_sources = list(unique_sources)
+
+        # ---------- Pass 1: Exact match (case-sensitive) ----------
+        for target in target_fields:
+            if target in available_sources:
+                suggestions[target] = {
+                    "source_column": target,
+                    "match_type": "exact",
+                    "score": 1.0,
+                }
+                available_sources.remove(target)
+
+        # ---------- Pass 2: Case-insensitive ----------
+        if available_sources:
+            lower_map: Dict[str, str] = {}
+            for src in available_sources:
+                lower_map.setdefault(src.lower(), src)  # first wins
+
+            for target in target_fields:
+                if target in suggestions:
+                    continue
+                key = target.lower()
+                if key in lower_map:
+                    src = lower_map.pop(key)
+                    suggestions[target] = {
+                        "source_column": src,
+                        "match_type": "case_insensitive",
+                        "score": 1.0,
+                    }
+                    available_sources.remove(src)
+
+        # ---------- Pass 3: Normalized ----------
+        if available_sources:
+
+            def normalize(s: str) -> str:
+                return s.strip().replace(" ", "_").lower()
+
+            norm_map: Dict[str, str] = {}
+            for src in available_sources:
+                norm_map.setdefault(normalize(src), src)
+
+            for target in target_fields:
+                if target in suggestions:
+                    continue
+                key = normalize(target)
+                if key in norm_map:
+                    src = norm_map.pop(key)
+                    suggestions[target] = {
+                        "source_column": src,
+                        "match_type": "normalized",
+                        "score": 1.0,
+                    }
+                    available_sources.remove(src)
+
+        # ---------- Pass 4: Fuzzy (rapidfuzz) ----------
+        for target in target_fields:
+            if target in suggestions:
+                continue
+            if not available_sources:
+                break
+
+            threshold = _dynamic_threshold(target)
+            t_norm = _normalize_for_fuzzy(target)
+
+            scores: List[Tuple[float, str]] = []
+            for src in available_sources:
+                score = fuzz.ratio(t_norm, _normalize_for_fuzzy(src)) / 100.0
+                scores.append((score, src))
+
+            scores.sort(reverse=True)
+            best_score, best_src = scores[0]
+            second_score = scores[1][0] if len(scores) > 1 else 0.0
+
+            if best_score >= threshold and (best_score - second_score) > 0.05:
+                suggestions[target] = {
+                    "source_column": best_src,
+                    "match_type": "fuzzy",
+                    "score": round(best_score, 3),
+                }
+                available_sources.remove(best_src)
+
+        # ---------- Summary logging ----------
+        exact_count = sum(1 for v in suggestions.values() if v["match_type"] == "exact")
+        ci_count = sum(
+            1 for v in suggestions.values() if v["match_type"] == "case_insensitive"
+        )
+        norm_count = sum(
+            1 for v in suggestions.values() if v["match_type"] == "normalized"
+        )
+        fuzzy_count = sum(1 for v in suggestions.values() if v["match_type"] == "fuzzy")
+        unmatched_count = len(target_fields) - len(suggestions)
+
+        logger.info(
+            "Auto-match summary | "
+            f"exact={exact_count} "
+            f"case_insensitive={ci_count} "
+            f"normalized={norm_count} "
+            f"fuzzy={fuzzy_count} "
+            f"unmatched={unmatched_count} "
+            f"unused_sources={len(available_sources)}"
+        )
+
+        return suggestions
+
     # ========== Mapping Application ==========
 
     def apply_mapping(
@@ -454,38 +620,73 @@ def sync_supplier_json(
     supplier: Supplier,
     schema_diff: dict,
 ) -> bool:
-    """
-    Reconcile a supplier's mappings with a schema diff.
-
-    Removes mappings for target fields that no longer exist.
-    Stamps schema_changed_flag/at if any mutation occurred.
-
-    Returns:
-        True if supplier.mappings was mutated, False otherwise.
-    """
-    # Short-circuit: no removals → nothing to do
     removed = schema_diff.get("removed", [])
-    if not removed:
-        return False
+    added = schema_diff.get("added", [])
+    changed = schema_diff.get("changed", [])
 
-    removed_names = {f.field_name for f in removed}
-
-    # Defensive copy — SQLAlchemy JSON needs explicit reassignment
     mappings = dict(supplier.mappings or {})
-
     mutated = False
-    for name in removed_names:
+
+    # 1. Removed fields
+    for field in removed:
+        name = field.field_name
+
         if name in mappings:
             del mappings[name]
             mutated = True
 
+    # 2. Added fields
+    for field in added:
+        name = field.field_name
+
+        mappings[name] = {
+            "data_type": field.data_type,
+            "max_length": field.max_length,
+            "is_nullable": field.is_nullable,
+            "is_identity": field.is_identity,
+        }
+        mutated = True
+
+    # 3. Changed fields
+    for change in changed:
+        name = change["field_name"]
+        new_field = change["new"]
+
+        old_mapping = mappings.get(name)
+        if old_mapping is None:
+            continue
+
+        preserved_mapping = {
+            key: value
+            for key, value in old_mapping.items()
+            if key
+            not in {
+                "target_field_name",
+                "target_field_id",
+                "data_type",
+                "max_length",
+                "is_nullable",
+                "is_identity",
+            }
+        }
+
+        mappings[name] = {
+            **preserved_mapping,
+            "target_field_name": new_field.field_name,
+            "target_field_id": new_field.id,
+            "data_type": new_field.data_type,
+            "max_length": new_field.max_length,
+            "is_nullable": new_field.is_nullable,
+            "is_identity": new_field.is_identity,
+        }
+
+        mutated = True
+
     if not mutated:
         return False
 
-    # ✅ Explicit reassignment → triggers SQLAlchemy dirty-tracking
     supplier.mappings = mappings
 
-    # ✅ Stamp once per drift event (idempotent guard)
     if not supplier.schema_changed_flag:
         supplier.schema_changed_at = datetime.now(timezone.utc)
         supplier.schema_changed_flag = True
@@ -497,7 +698,6 @@ def sync_all_suppliers(schema_diff: dict, db_session) -> int:
     """
     Apply a schema diff to all suppliers in a single transaction.
 
-    - Short-circuits when no removals exist (nothing to mutate).
     - Calls sync_supplier_json() per supplier.
     - Commits once at the end → atomic batch.
     - Rolls back on any error.
@@ -509,11 +709,6 @@ def sync_all_suppliers(schema_diff: dict, db_session) -> int:
     Returns:
         Count of suppliers whose mappings were actually mutated.
     """
-    # Short-circuit: no removals → no mapping mutation possible
-    if not schema_diff.get("has_changes"):
-        return 0
-    if not schema_diff.get("removed"):
-        return 0
 
     suppliers = db_session.query(Supplier).all()
     synced_count = 0
@@ -532,3 +727,27 @@ def sync_all_suppliers(schema_diff: dict, db_session) -> int:
         f"sync_all_suppliers: {synced_count}/{len(suppliers)} suppliers mutated"
     )
     return synced_count
+
+
+# ============================================================
+# FUZZY MATCHING HELPERS (used by FieldMapper.auto_match_fields)
+# ============================================================
+
+
+def _normalize_for_fuzzy(s: str) -> str:
+    """Aggressive normalization: strip, lower, remove spaces and underscores."""
+    return s.strip().lower().replace(" ", "").replace("_", "")
+
+
+def _dynamic_threshold(target: str) -> float:
+    """
+    Length-aware similarity threshold.
+
+    Shorter target names require higher confidence (fewer chars → more ambiguity).
+    """
+    length = len(target)
+    if length <= 4:
+        return 0.90
+    if length <= 8:
+        return 0.80
+    return 0.70

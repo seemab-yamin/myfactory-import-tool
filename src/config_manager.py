@@ -40,7 +40,7 @@ class AppSettings:
     db_driver: str = "ODBC Driver 17 for SQL Server"
     db_username: str = ""
     db_password: str = ""
-    db_trusted_connection: bool = True
+    db_trusted_connection: bool = False
     db_port: int = 1433
     db_connection_timeout: int = 30
 
@@ -49,7 +49,6 @@ class AppSettings:
 
     # Import Settings
     default_products_table: str = "tdProducts"
-    default_supplier: str = "default"
     default_batch_size: int = 1000
 
     # Logging
@@ -85,7 +84,6 @@ class AppSettings:
             "db_connection_timeout": self.db_connection_timeout,
             "auth_method": self.auth_method,
             "default_products_table": self.default_products_table,
-            "default_supplier": self.default_supplier,
             "default_batch_size": self.default_batch_size,
             "log_level": self.log_level,
             "log_max_bytes": self.log_max_bytes,
@@ -126,10 +124,6 @@ class AppSettings:
             return f"mssql+pyodbc://@{self.db_server}/{self.db_database}?driver={self.db_driver}&Trusted_Connection=yes"
         else:
             return f"mssql+pyodbc://{self.db_username}:{self.db_password}@{self.db_server}/{self.db_database}?driver={self.db_driver}"
-
-    def get_default_supplier(self) -> str:
-        """Get default supplier from settings."""
-        return self.get().default_supplier
 
     def validate(self) -> Tuple[bool, str]:
         """Validate settings."""
@@ -217,7 +211,7 @@ class ConfigManager:
                 self._settings.db_connection_timeout = int(
                     os.getenv("DB_CONNECTION_TIMEOUT", "30")
                 )
-                logger.info("Loaded settings from .env")
+                logger.info(f"Loaded settings from {self.env_path}")
             except Exception as e:
                 logger.warning(f"Could not load .env: {e}")
 
@@ -303,7 +297,7 @@ class ConfigManager:
                     password = getpass.getpass("Password: ")
                 self._settings.db_password = password
             else:
-                self._settings.db_trusted_connection = True
+                self._settings.db_trusted_connection = False
                 self._settings.auth_method = "windows"
                 self._settings.db_username = ""
                 self._settings.db_password = ""
@@ -315,10 +309,6 @@ class ConfigManager:
             )
             table = input(f"Default product table [{default_products_table}]: ").strip()
             self._settings.default_products_table = table or default_products_table
-
-            default_supplier = self._settings.default_supplier or "default"
-            supplier = input(f"Default supplier name [{default_supplier}]: ").strip()
-            self._settings.default_supplier = supplier or default_supplier
 
             default_batch = str(self._settings.default_batch_size)
             batch = input(f"Batch size (rows per batch) [{default_batch}]: ").strip()
@@ -339,7 +329,10 @@ class ConfigManager:
 
                 print("\n✅ Setup complete! Configuration saved.")
                 print(f"📁 Config file: {self.config_path}")
-                print(f"🔐 Credentials stored in: Windows Credential Manager")
+                if os.name == "nt":
+                    print("🔐 Credentials stored in: Windows Credential Manager")
+                else:
+                    print(f"🔐 Credentials stored in: {self.env_path}")
                 return True
             else:
                 print(
@@ -482,7 +475,6 @@ class ConfigManager:
             f"Driver:        {s.db_driver}",
             f"Auth Method:   {s.auth_method.upper()}",
             f"Table:         {s.default_products_table}",
-            f"Supplier:      {s.default_supplier}",
             f"Batch Size:    {s.default_batch_size}",
             f"Log Level:     {s.log_level}",
             f"Data Directory: {s.app_data_dir}",

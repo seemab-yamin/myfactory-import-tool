@@ -122,7 +122,34 @@ pre {
     width: 250px !important;
     display: none;
 }
+
 .table-danger {
     background-color: #f8d7da !important;
     border-left: 4px solid #dc3545;
+}
+/* Auto-map visual states */
+.source-select.auto-mapped-exact {
+    background-color: #d1e7dd;
+    border-color: #198754;
+}
+
+.source-select.auto-mapped-fuzzy {
+    background-color: #fff3cd;
+    border-color: #ffc107;
+}
+
+/* Warning icon next to fuzzy dropdowns */
+.source-select.auto-mapped-fuzzy+.fuzzy-warning,
+.fuzzy-warning {
+    color: #856404;
+    margin-left: 6px;
+    cursor: help;
+}
+
+#autoMapSummary {
+    font-size: 0.95rem;
+}
+
+#autoMapSummary .bi {
+    margin-right: 6px;
 }

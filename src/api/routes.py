@@ -73,25 +73,23 @@ async def mappings_list_page(request: Request):
 
     # ---- 1. Suppliers list (always needed) ----
     suppliers = []
-    if ensure_configured():
-        try:
-            suppliers = get_mapper().get_all_suppliers()
-        except Exception as e:
-            logger.warning(f"Failed to fetch suppliers: {e}")
+    try:
+        suppliers = get_mapper().get_all_suppliers()
+    except Exception as e:
+        logger.warning(f"Failed to fetch suppliers: {e}")
 
     # ---- 2. Drift check (best-effort, never blocks the page) ----
     schema_changed = False
     schema_details: dict = {}
 
-    if ensure_configured():
-        try:
-            with local_session() as session:
-                service = SchemaDriftService(session)
-                schema_details = service.check_and_sync()
-                schema_changed = bool(schema_details.get("has_changes"))
-        except Exception as e:
-            logger.warning(f"Schema drift check failed on /mappings-list: {e}")
-            schema_details = {"error": str(e), "has_changes": False}
+    try:
+        with local_session() as session:
+            service = SchemaDriftService(session)
+            schema_details = service.check_and_sync()
+            schema_changed = bool(schema_details.get("has_changes"))
+    except Exception as e:
+        logger.warning(f"Schema drift check failed on /mappings-list: {e}")
+        schema_details = {"error": str(e), "has_changes": False}
 
     # ✅ Ensure schema_details always has the expected keys
     schema_details.setdefault("has_changes", False)
@@ -445,6 +443,90 @@ async def api_save_mappings(
         "supplier_id": supplier_id,
         "supplier_name": supplier_name,
     }
+
+
+@router.post("/api/mappings-auto-suggest")
+async def api_auto_suggest(payload: dict = Body(...)):
+    """
+    Suggest target→source field mappings by deterministic name matching.
+
+    Request body:
+        {
+            "source_columns": ["SKU", "Name", ...],
+            "table_name": "tdProducts"
+        }
+
+    Response:
+        {
+            "suggestions": { "target_field": "source_column", ... },
+            "unmatched_targets": [...],
+            "unmatched_sources": [...]
+        }
+
+    Read-only. Does not save anything.
+    """
+
+    # ---- Validate input ----
+    source_columns = payload.get("source_columns")
+
+    if not isinstance(source_columns, list) or not source_columns:
+        raise HTTPException(
+            status_code=400,
+            detail="'source_columns' must be a non-empty list of strings.",
+        )
+
+    if not all(isinstance(c, str) for c in source_columns):
+        raise HTTPException(
+            status_code=400,
+            detail="All items in 'source_columns' must be strings.",
+        )
+
+    try:
+        mapper = get_mapper()
+        target_fields = mapper.get_target_fields()
+        target_names = [
+            tf["field_name"] for tf in target_fields if tf.get("field_name")
+        ]
+
+        suggestions = mapper.auto_match_fields(source_columns, target_names)
+
+        # ✅ Extract source_column from new dict shape
+        matched_sources = {v["source_column"] for v in suggestions.values()}
+        unmatched_targets = [t for t in target_names if t not in suggestions]
+        unmatched_sources = [s for s in source_columns if s not in matched_sources]
+
+        # ✅ Optional: enrich response with summary counts
+        summary = {
+            "exact": sum(
+                1 for v in suggestions.values() if v.get("match_type") == "exact"
+            ),
+            "case_insensitive": sum(
+                1
+                for v in suggestions.values()
+                if v.get("match_type") == "case_insensitive"
+            ),
+            "normalized": sum(
+                1 for v in suggestions.values() if v.get("match_type") == "normalized"
+            ),
+            "fuzzy": sum(
+                1 for v in suggestions.values() if v.get("match_type") == "fuzzy"
+            ),
+            "unmatched_targets": len(unmatched_targets),
+            "unmatched_sources": len(unmatched_sources),
+        }
+
+        return {
+            "suggestions": suggestions,
+            "unmatched_targets": unmatched_targets,
+            "unmatched_sources": unmatched_sources,
+            "summary": summary,
+        }
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Auto-suggest failed: {e}", exc_info=True)
+        raise HTTPException(status_code=500, detail=f"Auto-suggest failed: {e}")
 
 
 @router.delete("/api/suppliers/{supplier_id:int}")

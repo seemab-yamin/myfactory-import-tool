@@ -177,7 +177,7 @@ def compare_schemas(
         new = live_by_name[name]
         diffs = {}
 
-        if _is_length_narrowed(old.max_length, new.max_length):
+        if _is_length_changed(old.max_length, new.max_length):
             diffs["max_length"] = {"old": old.max_length, "new": new.max_length}
 
         if old.is_identity != new.is_identity:
@@ -186,11 +186,18 @@ def compare_schemas(
         if old.is_nullable and not new.is_nullable:
             diffs["is_nullable"] = {"old": old.is_nullable, "new": new.is_nullable}
 
-        if _is_type_narrowed(old.data_type, new.data_type):
+        if _is_type_changed(old.data_type, new.data_type):
             diffs["data_type"] = {"old": old.data_type, "new": new.data_type}
 
         if diffs:
-            changed.append({"field_name": name, "changes": diffs})
+            changed.append(
+                {
+                    "field_name": name,
+                    "old": old,
+                    "new": new,
+                    "changes": diffs,
+                }
+            )
 
     return {
         "added": added,
@@ -205,15 +212,20 @@ def compare_schemas(
 # ============================================================
 
 
-def _is_length_narrowed(old_len: Optional[int], new_len: Optional[int]) -> bool:
-    """Return True only if the new max_length is strictly smaller than old."""
+def _is_length_changed(old_len: Optional[int], new_len: Optional[int]) -> bool:
+    """Return True if the new max_length is not equal to the old max_length."""
     if old_len is None or new_len is None:
         return False
-    return new_len < old_len
+    return new_len != old_len
 
 
-def _is_type_narrowed(old_type: Optional[str], new_type: Optional[str]) -> bool:
-    """Return True if the new data_type is strictly narrower than old."""
+def _is_type_changed(old_type: Optional[str], new_type: Optional[str]) -> bool:
+    """
+    Return True if the new data type is incompatible with the old data type.
+    This includes cases where the types are fundamentally different or where
+    a more restrictive type is introduced.
+
+    """
 
     if not old_type or not new_type:
         return False

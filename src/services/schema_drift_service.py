@@ -59,7 +59,6 @@ class SchemaDriftService:
 
         # ---- 3. Diff ----
         diff = compare_schemas(cached, live)
-
         if not diff["has_changes"]:
             logger.info("Drift check: no changes detected")
             return self._empty_result(now, reason="no_changes")
@@ -77,11 +76,14 @@ class SchemaDriftService:
 
         # ---- 4. Sync suppliers ----
         suppliers_synced = 0
-        if self.apply_sync and removed_snapshot:
+        if self.apply_sync and (removed_snapshot or added_snapshot or changed_snapshot):
             suppliers_synced = sync_all_suppliers(diff, self.db)
 
         # ---- 5. Refresh cache (destructive) ----
-        self._refresh_target_field_cache(live)
+        if self.apply_sync:
+            self._refresh_target_field_cache(live)
+        else:
+            logger.info("Drift check: apply_sync=False — cache not refreshed")
 
         # ---- 6. Write log using SNAPSHOT (not diff objects) ----
         log = SchemaChangeLog(

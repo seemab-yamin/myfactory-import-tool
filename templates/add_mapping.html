@@ -110,6 +110,8 @@
           <strong>Step 3:</strong> Map Product Fields → File Columns
         </div>
         <div>
+          <div id="autoMapStatus" class="mt-2 text-muted small"></div>
+          <button type="button" id="autoMapBtn" class="btn btn-outline-primary" onclick="autoMapFields()" disabled><i class="bi bi-magic"></i> Auto-Map</button>
           <button class="btn btn-sm btn-outline-primary" onclick="forceRefreshSchema()" id="refreshSchemaBtn"><i class="bi bi-arrow-clockwise"></i> Force Refresh Schema</button>
         </div>
       </div>
@@ -119,6 +121,12 @@
             For each <strong>product table field</strong>, select the corresponding column from your uploaded file or provide a default value.
             <span class="text-danger">*</span> indicates mandatory fields.
           </p>
+
+          <!-- ✅ U3: Auto-map summary banner -->
+          <div id="autoMapSummary" class="alert alert-secondary d-none mb-3" role="status" aria-live="polite">
+            <i class="bi bi-info-circle"></i>
+            <span id="autoMapSummaryText"></span>
+          </div>
 
           <div class="table-responsive">
             <table class="table table-bordered table-hover">
