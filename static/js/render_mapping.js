@@ -75,7 +75,7 @@ function renderMappingUI() {
                     <br><span class="text-muted small">ID: ${targetId}</span>
                 </td>
                 <td>
-                    <select class="form-select form-select-sm source-select" data-target-id="${targetId}" data-target-name="${targetName}">
+                    <select class="form-select form-select-sm source-select" data-target-id="${targetId}" data-target-name="${targetName}" data-type="${dataType}">
                         <option value="None">None</option>
                         ${sourceFields.map(sf => `
                             <option value="${sf}" ${hasSource === sf ? 'selected' : ''}>
