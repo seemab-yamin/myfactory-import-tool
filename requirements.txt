@@ -12,3 +12,4 @@ jinja2
 starlette
 rich
 rapidfuzz
+aiofiles
