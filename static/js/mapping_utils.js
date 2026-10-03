@@ -72,7 +72,7 @@ function resetSheetState() {
     if (sheetStatus) sheetStatus.textContent = '';
 }
 function getDelimiter() {
-    const val = delimiterChar ? delimiterChar.value : ',';
+    const val = delimiterChar ? delimiterChar.value : delimiterInput ? delimiterInput.value : ',';
     return val === ',' ? null : val;
 }
 
