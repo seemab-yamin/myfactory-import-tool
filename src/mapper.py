@@ -42,6 +42,7 @@ class FieldMapper:
                 - source_field: str | None
                 - target_field: str (target field name — the dict key)
                 - is_mandatory: bool
+                - is_db_required: bool
                 - is_active: bool
                 - prepopulated_value: str | None
         """
@@ -69,6 +70,7 @@ class FieldMapper:
                             "source_field": m.get("source_field"),
                             "target_field": target_name,  # key is the target name
                             "is_mandatory": m.get("is_mandatory", False),
+                            "is_db_required": m.get("is_db_required", False),
                             "is_active": m.get("is_active", True),
                             "prepopulated_value": m.get("prepopulated_value"),
                         }
@@ -120,9 +122,11 @@ class FieldMapper:
                 - target_field: str (field name)
                 - target_field_id: int
                 - is_mandatory: bool
+                - is_db_required: bool
                 - is_active: bool
                 - prepopulated_value: str or None
         """
+
         # ✅ Normalize List[dict] → dict keyed by target_field_name
         mappings_dict = {
             m["target_field_name"]: m for m in mappings if m.get("target_field_name")
@@ -390,6 +394,7 @@ class FieldMapper:
                     "old_source": source_column,
                     "suggested_source": suggested_source,
                     "is_mandatory": mapping.get("is_mandatory", False),
+                    "is_db_required": mapping.get("is_db_required", False),
                 }
             )
 
