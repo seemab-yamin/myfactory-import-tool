@@ -79,6 +79,97 @@
             <span class="text-danger">*</span> indicates mandatory fields.
           </p>
 
+          <div class="mb-3">
+            <button
+              class="btn btn-outline-primary w-100 text-start"
+              type="button"
+              data-bs-toggle="collapse"
+              data-bs-target="#sourceFieldsSync"
+              aria-expanded="false"
+              aria-controls="sourceFieldsSync"
+            >
+              <i class="bi bi-arrow-repeat"></i>
+              Update Source Fields
+            </button>
+
+            <div class="collapse mt-2" id="sourceFieldsSync">
+              <div class="card card-body">
+                <div class="card-body">
+                  
+                  <!-- Row 1: File picker -->
+                  <div class="row align-items-end mb-3">
+                    <div class="col-md-6">
+                      <label for="sampleFile" class="form-label">Sample File <span class="text-danger">*</span></label>
+                      <input type="file" id="sampleFile" class="form-control" accept=".csv,.xlsx,.xls" />
+                      <div id="fileTypeHint" class="form-text"></div>
+                    </div>
+                  </div>
+                  
+                  <!-- Row 2: Sheet selector (Excel only, hidden by default) -->
+                  <div class="row align-items-end mb-3" id="sheetSelectorRow" style="display:none;">
+                    <div class="col-md-5">
+                      <label for="sheetSelect" class="form-label">Sheet Name</label>
+                      <select id="sheetSelect" class="form-select">
+                        <option value="">— Select a sheet —</option>
+                      </select>
+                      <div id="sheetStatus" class="form-text"></div>
+                    </div>
+                    <div class="col-md-3">
+                      <button id="fetchSheetsBtn" class="btn btn-outline-primary" onclick="fetchSheets()" disabled><i class="bi bi-list-ul"></i> Fetch Sheets</button>
+                    </div>
+                  </div>
+
+        <!-- Row 3: Header row index -->
+        <div class="row align-items-end mb-3">
+          <div class="col-md-3">
+            <label for="headerRowIndex" class="form-label">Header Row Number</label>
+            <input type="number" id="headerRowIndex" class="form-control" value="1" min="1" />
+            <div class="form-text">Row where headers start (default 1)</div>
+          </div>
+        </div>
+
+        <!-- Row 3b: Delimiter (CSV only) -->
+        <div class="row align-items-end mb-3" id="delimiterRow" style="display:none;">
+          <div class="col-md-3">
+            <label for="delimiterChar" class="form-label">Delimiter</label>
+            <select id="delimiterChar" class="form-select">
+              <option selected value=",">Comma (,)</option>
+              <option value=";">Semicolon (;)</option>
+              <option value="&#9;">Tab (\t)</option>
+              <option value="|">Pipe (|)</option>
+            </select>
+            <div class="form-text">Only used for CSV files</div>
+          </div>
+        </div>
+
+        <!-- Row 4: Parse button -->
+        <div class="row align-items-end">
+          <div class="col-md-3">
+            <button id="parseFileBtn" class="btn btn-primary" onclick="parseRender()" disabled><i class="bi bi-upload"></i> Upload &amp; Parse</button>
+          </div>
+          <div class="col-md-3">
+            <button id="updateSourceBtn" class="btn btn-secondary" onclick="updateSource()"><i class="bi bi-upload"></i>Update Source Data</button>
+          </div>
+          <div class="col-md-6">
+            <div id="updateSourceStatus" class="form-text"></div>
+          </div>
+        </div>
+
+        <!-- Preview table -->
+        <div id="filePreview" class="mt-3" style="display:none;">
+          <h6>📄 File Preview (first 5 rows)</h6>
+          <div class="table-responsive">
+            <table id="previewTable" class="table table-sm table-bordered table-striped">
+              <thead id="previewHead"></thead>
+              <tbody id="previewBody"></tbody>
+            </table>
+          </div>
+        </div>
+      </div>
+              </div>
+            </div>
+          </div>
+
           <div class="table-responsive">
             <table class="table table-bordered table-hover">
               <thead class="table-light">
@@ -122,10 +213,11 @@
 
   <!-- ✅ Pass data to JavaScript via data attributes -->
   <div id="page-data" data-supplier-id="{{ supplier_id }}" data-supplier-name="{{ supplier_name }}" data-source-fields="{{ source_fields|default([])|tojson|forceescape }}" data-supplier-mappings="{{ supplier_mappings|default({})|tojson|forceescape }}" style="display:none;"></div>
+  <input type="text" id="supplierName" class="form-control" value="{{ supplier_name }}" hidden />
+{% endblock %}
 
-  {% block scripts %}
-    <script src="{{ url_for('static', path='js/render_mapping.js') }}"></script>
-    <script src="{{ url_for('static', path='js/mapping_utils.js') }}"></script>
+{% block scripts %}
+<script src="{{ url_for('static', path='js/render_mapping.js') }}"></script>
+<script src="{{ url_for('static', path='js/mapping_utils.js') }}"></script>
     <script src="{{ url_for('static', path='js/show_mapping.js') }}"></script>
   {% endblock %}
-{% endblock %}

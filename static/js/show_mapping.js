@@ -3,6 +3,9 @@
 // Depends on: mapping_utils.js (loaded first)
 // ============================================================
 
+// ===== DOM References =====
+const updateSourceBtn = document.getElementById('updateSourceBtn');
+
 // ============================================================
 // DATA HELPERS
 // ============================================================
@@ -69,23 +72,29 @@ function showToast(title, message, type = 'success') {
 }
 
 // ============================================================
+// ESCAPE HTML HELPER
+// ============================================================
+function escapeHtml(value) {
+    const div = document.createElement("div");
+    div.textContent = value ?? "";
+    return div.innerHTML;
+}
+
+// ============================================================
 // EVENT LISTENERS
 // ============================================================
 
 function attachEventListeners() {
-    // Source select changes
     document.querySelectorAll('.source-select').forEach(select => {
         select.removeEventListener('change', onSourceChange);
         select.addEventListener('change', onSourceChange);
     });
 
-    // Mandatory checkbox changes
     document.querySelectorAll('.mandatory-check').forEach(checkbox => {
         checkbox.removeEventListener('change', onMandatoryChange);
         checkbox.addEventListener('change', onMandatoryChange);
     });
 
-    // Prepopulated input changes
     document.querySelectorAll('.prepopulated-value').forEach(input => {
         input.removeEventListener('input', onPrepopulatedInput);
         input.addEventListener('input', onPrepopulatedInput);
@@ -149,7 +158,6 @@ function updateMandatorySummary() {
     }
 }
 
-
 // ============================================================
 // DELETE SUPPLIER
 // ============================================================
@@ -173,6 +181,95 @@ async function deleteSupplier(supplierId, supplierName) {
     } catch (e) {
         console.error('Delete error:', e);
         showToast('Error', `Failed to delete supplier: ${e.message}`, 'danger');
+    }
+}
+
+// ============================================================
+// SOURCE FIELDS FROM PAGE DATA
+// ============================================================
+// TODO:
+async function updateSource() {
+    const headerRowIndex = getHeaderRowIndex();
+    const delimiter = getDelimiter();
+    const sheetName = selectedSheet || null;
+    const supplierName = getSupplierName();
+    const statusDiv = document.getElementById('updateSourceStatus');
+
+    // ============================================================
+    // Step: Build payload
+    // ============================================================
+    const payload = {
+        source_fields: parsedColumns,
+        is_new_supplier: false,
+        sheet_name: sheetName,
+        header_row_index: Number.isInteger(headerRowIndex) ? headerRowIndex : 1,
+        delimiter: delimiter,
+    };
+
+    // ============================================================
+    // Step 11: Send to backend
+    // ============================================================
+    const url = `/api/suppliers/${encodeURIComponent(supplierName)}`;
+    console.log('[updateSource] Sending payload to backend:', payload, url);
+
+    updateSourceBtn.disabled = true;
+    statusDiv.innerHTML = `<span class="text-info">⏳ Updating Source Fields for ${parsedColumns.length} mapping(s)...</span>`;
+
+    // TODO: Update the try to match our feature needs
+    try {
+        const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify(payload)
+        });
+
+
+        if (!response.ok) {
+            let errorMessage = `HTTP ${response.status}`;
+            let errorDetail = null;
+
+            try {
+                const errorData = await response.json();
+                console.error(`${TAG} [11] ❌ Backend error response:`, errorData);
+                errorDetail = errorData;
+                errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
+            } catch (e) {
+                errorMessage = response.statusText || errorMessage;
+            }
+
+            throw { message: errorMessage, detail: errorDetail, status: response.status };
+        }
+
+        const result = await response.json();
+
+        hasChanges = false;
+        updateSaveButton();
+
+        statusDiv.innerHTML = `<span class="text-success">✅ ${mappingList.length} mappings saved successfully!</span>`;
+        showToast('Success', `Mappings saved for ${supplierName}`, 'success');
+        saveBtn.innerHTML = '<i class="bi bi-save"></i> Save Changes';
+
+        setTimeout(() => {
+            const redirectUrl = result.supplier_id
+                ? `/show-mapping/${result.supplier_id}`
+                : window.location.href;
+            if (result.supplier_id) {
+                window.location.href = redirectUrl;
+            } else {
+                window.location.reload();
+            }
+        }, 1500);
+
+    } catch (error) {
+        console.error(`${TAG} [11] ❌ Save failed:`, error);
+
+        const errorMsg = error.detail ? JSON.stringify(error.detail) : error.message;
+        statusDiv.innerHTML = `<span class="text-danger">❌ ${errorMsg}</span>`;
+        showToast('Error', `Failed to save mappings: ${error.message}`, 'danger');
+        saveBtn.disabled = false;
+        saveBtn.innerHTML = '<i class="bi bi-save"></i> Save Changes';
     }
 }
 

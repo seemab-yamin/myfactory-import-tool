@@ -3,7 +3,7 @@ let mappings = [];
 
 // ===== API Calls =====
 async function fetchMappings() {
-    const r = await fetch('/api/mappings-list');
+    const r = await fetch('/api/suppliers');
     if (!r.ok) throw new Error('Failed to fetch mappings list');
     return r.json();
 }

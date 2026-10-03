@@ -1,3 +1,35 @@
+let targetColumns = [];
+let supplierExists = false;
+// ===== Step Unlock State =====
+let step1Complete = false;
+let step2Complete = false;
+
+// Sheet fetch state
+let availableSheets = [];
+let selectedSheet = null;
+let uploadedFilePath = null;
+let initialMappings = {};
+
+// ===== DOM References =====
+const fetchSheetsBtn = document.getElementById('fetchSheetsBtn');
+const sheetSelect = document.getElementById('sheetSelect');
+const delimiterInput = document.getElementById('delimiterInput');
+const delimiterChar = document.getElementById('delimiterChar');
+const saveBtn = document.getElementById('saveBtn');
+const parseFileBtn = document.getElementById('parseFileBtn');
+const noFileMessage = document.getElementById('noFileMessage');
+const mappingArea = document.getElementById('mappingArea');
+const autoMapBtn = document.getElementById('autoMapBtn');
+const sheetStatus = document.getElementById('sheetStatus');
+const sampleFileInput = document.getElementById('sampleFile');
+const supplierNameInput = document.getElementById('supplierName');
+const autoMapStatus = document.getElementById('autoMapStatus');
+const fileTypeHint = document.getElementById('fileTypeHint');
+const headerRowIndexInput = document.getElementById('headerRowIndex');
+
+const delimiterRow = document.getElementById('delimiterRow');
+const sheetSelectorRow = document.getElementById('sheetSelectorRow');
+
 /**
  * mapping_utils.js – Shared utility functions for mapping UI
  * Used by both add_mapping.js and show_mapping.js
@@ -27,6 +59,46 @@ function getPageData() {
         console.error('❌ Failed to parse page data:', e);
         return null;
     }
+}
+
+// ============================================================
+// HELPERS
+// ============================================================
+function resetSheetState() {
+    availableSheets = [];
+    selectedSheet = null;
+    if (sheetSelect) sheetSelect.innerHTML = '<option value="">— Select a sheet —</option>';
+    if (sheetSelectorRow) sheetSelectorRow.style.display = 'none';
+    if (sheetStatus) sheetStatus.textContent = '';
+}
+function getDelimiter() {
+    const val = delimiterChar ? delimiterChar.value : ',';
+    return val === ',' ? null : val;
+}
+
+function isCsvFile(file) {
+    if (!file) return false;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    return ext === 'csv';
+}
+
+function isExcelFile(file) {
+    if (!file) return false;
+    const ext = (file.name.split('.').pop() || '').toLowerCase();
+    return ext === 'xlsx' || ext === 'xls';
+}
+
+function getHeaderRowIndex() {
+    const v = parseInt(headerRowIndexInput?.value, 10);
+    return Number.isFinite(v) && v > 0 ? v : 1;
+}
+
+function clearAutoMapVisuals() {
+    document.querySelectorAll('.source-select').forEach(sel => {
+        sel.classList.remove('auto-mapped-exact', 'auto-mapped-fuzzy');
+        sel.removeAttribute('title');
+    });
+    document.querySelectorAll('.fuzzy-warning').forEach(el => el.remove());
 }
 
 // ============================================================
@@ -68,7 +140,6 @@ function collectMappingsFromUI(
 // ============================================================
 
 function updateSaveButton() {
-    const saveBtn = document.getElementById('saveBtn');
     if (saveBtn) saveBtn.disabled = !hasChanges;
 }
 
@@ -159,30 +230,394 @@ function renderValidationErrors(statusDiv, errors) {
 }
 
 // ============================================================
-// SAVE MAPPINGS – WITH TARGET NAME + EDITABLE CONFIG + TRACE LOGS
+// STEP MANAGEMENT
 // ============================================================
+function updateStepStates() {
+    const name = supplierNameInput.value.trim();
+    step1Complete = name.length > 0 && !supplierExists;
 
-async function saveMappings() {
-    const TAG = '[saveMappings]';
-    console.log(`${TAG} ▶ START`);
+    sampleFileInput.disabled = !step1Complete;
 
-    const saveBtn = document.getElementById('saveBtn');
-    const statusDiv = document.getElementById('saveStatus');
+    const hasFile = sampleFileInput.files.length > 0;
+    const isExcel = hasFile && isExcelFile(sampleFileInput.files[0]);
+    parseFileBtn.disabled = !step1Complete || !hasFile || (isExcel && !selectedSheet);
 
-    // ============================================================
-    // Step 1: Get supplier name
-    // ============================================================
+    if (fetchSheetsBtn) {
+        fetchSheetsBtn.disabled = !isExcel;
+    }
+
+    const mappingSelects = document.querySelectorAll('.source-select');
+    const prepopulatedInputs = document.querySelectorAll('.prepopulated-value');
+    mappingSelects.forEach(s => (s.disabled = !step2Complete));
+    prepopulatedInputs.forEach(i => (i.disabled = !step2Complete));
+
+    updateStepIndicators();
+}
+
+function updateStepStatus(step, isComplete, pendingMsg, errorMsg) {
+    const card = document.querySelector(`[data-step="${step}"]`);
+    if (!card) return;
+
+    const header = card.querySelector('.card-header');
+    let statusEl = header.querySelector('.step-status');
+
+    if (!statusEl) {
+        statusEl = document.createElement('span');
+        statusEl.className = 'step-status ms-2 badge';
+        header.appendChild(statusEl);
+    }
+
+    if (isComplete) {
+        statusEl.textContent = '✅ Complete';
+        statusEl.className = 'step-status ms-2 badge bg-success';
+    } else if (step === 1 && !step1Complete) {
+        const name = supplierNameInput.value.trim();
+        if (name.length === 0) {
+            statusEl.textContent = '⏳ ' + pendingMsg;
+            statusEl.className = 'step-status ms-2 badge bg-warning text-dark';
+        } else if (supplierExists) {
+            statusEl.textContent = '❌ ' + errorMsg;
+            statusEl.className = 'step-status ms-2 badge bg-danger';
+        }
+    } else if (step === 2 && !step2Complete) {
+        if (step1Complete) {
+            statusEl.textContent = '⏳ ' + pendingMsg;
+            statusEl.className = 'step-status ms-2 badge bg-warning text-dark';
+        } else {
+            statusEl.textContent = '🔒 Locked';
+            statusEl.className = 'step-status ms-2 badge bg-secondary';
+        }
+    }
+}
+
+function updateStepIndicators() {
+    document.querySelectorAll('[data-step]').forEach(card => {
+        const step = parseInt(card.dataset.step);
+        card.classList.toggle('active', step === getCurrentStep());
+        card.classList.toggle('completed', step < getCurrentStep());
+    });
+
+    updateStepStatus(1, step1Complete, 'Enter supplier name', 'Name already exists');
+    updateStepStatus(2, step2Complete, 'Upload a file', '');
+}
+
+// ============================================================
+// FILE CHANGE HANDLER
+// ============================================================
+async function handleFileChange() {
+    const fileInput = sampleFileInput;
+    const file = fileInput.files[0];
+
+    resetSheetState();
+    uploadedFilePath = null;
+
+    window.parsedHeaderRowIndex = null;
+    window.parsedSheetName = null;
+    window.parsedDelimiter = null;
+
+    // Reset auto-map UI
+    if (autoMapBtn) autoMapBtn.disabled = true;
+    if (autoMapStatus) autoMapStatus.innerHTML = '';
+    clearAutoMapVisuals();
+
+    // ✅ Hide the summary banner
+    const banner = document.getElementById('autoMapSummary');
+    if (banner) banner.classList.add('d-none');
+
+    if (!file) {
+        if (fileTypeHint) fileTypeHint.textContent = '';
+        if (delimiterRow) delimiterRow.style.display = 'none';
+        updateStepStates();
+        return;
+    }
+
+    if (isCsvFile(file)) {
+        if (fileTypeHint) fileTypeHint.textContent = 'CSV file detected — no sheet selection needed.';
+        if (delimiterRow) delimiterRow.style.display = 'flex';
+        if (sheetSelectorRow) sheetSelectorRow.style.display = 'none';
+    } else if (isExcelFile(file)) {
+        if (fileTypeHint) fileTypeHint.textContent = 'Excel file detected — fetching sheets...';
+        if (delimiterRow) delimiterRow.style.display = 'none';
+        await fetchSheets();
+    } else {
+        if (fileTypeHint) fileTypeHint.innerHTML =
+            '<span class="text-danger">Unsupported file type. Use CSV or Excel.</span>';
+        if (delimiterRow) delimiterRow.style.display = 'none';
+    }
+
+    updateStepStates();
+}
+
+// ============================================================
+// BUILD MAPPING UI
+// ============================================================
+function buildMappingUI(targetCols, fileCols) {
+    const tbody = document.getElementById('mappingTableBody');
+    console.log(`Building mapping UI with ${targetCols.length} target columns and ${fileCols.length} source columns`);
+    mappingArea.style.display = 'block';
+    noFileMessage.style.display = 'none';
+
+    currentMappings = {};
+    initialMappings = {};
+    prepopulatedValues = {};
+
+    const sorted = [...targetCols].sort((a, b) => {
+        const aR = a.nullable === false;
+        const bR = b.nullable === false;
+        if (aR && !bR) return -1;
+        if (!aR && bR) return 1;
+        return 0;
+    });
+
+    let html = '';
+    sorted.forEach((col, index) => {
+        const isMandatory = col.nullable === false;
+        const fieldId = col.target_field_id;
+        const fieldName = col.name || col.field_name || 'Unknown';
+        const rowId = `row-${index}`;
+
+        const init = {
+            target: fieldName,
+            source: null,
+            prepopulated: false,
+            prepopulated_value: null,
+            target_id: fieldId,
+            is_mandatory: isMandatory,
+        };
+        currentMappings[fieldId] = { ...init };
+        initialMappings[fieldId] = { ...init };
+
+        html += `<tr id="${rowId}">
+            <td>${index + 1}</td>
+            <td>
+                <strong>${fieldName}</strong>
+                ${isMandatory ? '<span class="text-danger">*</span>' : ''}
+                <br><span class="text-muted small">${col.type || ''}</span>
+                <br><span class="text-muted small">ID: ${fieldId}</span>
+            </td>
+            <td>
+                <select class="form-select form-select-sm source-select" data-target-id="${fieldId}" data-target-name="${fieldName}" data-type="${col.type || ''}">
+                    <option value="None">None</option>
+                    ${fileCols.map(fc => `<option value="${fc}">${fc}</option>`).join('')}
+                </select>
+            </td>
+            <td class="text-center">
+                <input type="checkbox" class="form-check-input mandatory-check"
+                       data-target-id="${fieldId}"
+                       ${isMandatory ? 'checked disabled' : ''}>
+            </td>
+            <td>
+                <input type="text" class="form-control form-control-sm prepopulated-value"
+                       data-target-id="${fieldId}"
+                       placeholder="Pre Populated value...">
+            </td>
+        </tr>`;
+    });
+
+    tbody.innerHTML = html;
+    step2Complete = true;
+
+    document.querySelectorAll('.source-select').forEach(el => {
+        el.removeEventListener('change', handleSourceChange);
+        el.addEventListener('change', handleSourceChange);
+    });
+    document.querySelectorAll('.mandatory-check').forEach(el => {
+        el.removeEventListener('change', handleMandatoryChange);
+        el.addEventListener('change', handleMandatoryChange);
+    });
+    document.querySelectorAll('.prepopulated-value').forEach(el => {
+        el.removeEventListener('input', handlePrepopulatedInput);
+        el.addEventListener('input', handlePrepopulatedInput);
+    });
+
+    window._mappingTargets = sorted.reduce((acc, col) => {
+        acc[col.target_field_id] = col.name || col.field_name || 'Unknown';
+        return acc;
+    }, {});
+    window.targetColumns = targetCols;
+
+    updateMappingStatus();
+    updateStepStates();
+}
+
+/**
+ * Pure parse-only function.
+ * Sends a file to /api/parse-sample and returns the parsed result.
+ * Throws on network or server error. No DOM access, no UI side effects.
+ *
+ * @param {File}        file       - File to parse
+ * @param {number}      headerRow  - Header row index (1-based)
+ * @param {string|null} delim      - Delimiter for CSV (null = let backend sniff)
+ * @param {string|null} sheetName  - Excel sheet name (null = first sheet)
+ * @returns {Promise<Object>} Parsed result: { columns, preview, ... }
+ */
+async function parseFileOnly(file, headerRow, delim, sheetName) {
+    const formData = new FormData();
+    formData.append('file', file);
+    formData.append('header_row_index', String(headerRow));
+
+    if (isExcelFile(file) && sheetName) {
+        formData.append('sheet_name', sheetName);
+    }
+
+    if (isCsvFile(file)) {
+        formData.append('delimiter', delim === null ? ',' : delim);
+    }
+
+    const response = await fetch('/api/parse-sample', {
+        method: 'POST',
+        body: formData,
+    });
+
+    if (!response.ok) {
+        const err = await response.json().catch(() => ({}));
+        throw new Error(err.detail || `HTTP ${response.status}`);
+    }
+
+    return await response.json();
+}
+
+/**
+ * Applies parsed data to the UI: stores config, renders preview,
+ * updates global state. Caller is responsible for error handling.
+ *
+ * @param {Object}      data       - Response from parseFileOnly
+ * @param {number}      headerRow  - Header row index used
+ * @param {string|null} delim      - Delimiter used
+ * @param {string|null} sheetName  - Sheet name used
+ */
+async function parseRender() {
+    const headerRow = getHeaderRowIndex();
+    const delim = getDelimiter();
+    const sheetName = selectedSheet || null;
+
+    const file = sampleFileInput.files[0];
+
+    // ✅ Validation (UI concern) — bail early before touching network
+    if (!file) {
+        statusDiv.innerHTML = '<span class="text-warning">⚠️ Please select a file</span>';
+        return;
+    }
+
+    // 1. Pure API call
+    const data = await parseFileOnly(file, headerRow, delim, sheetName);
+    const previewDiv = document.getElementById('filePreview');
+
+    parsedColumns = data.columns || [];
+    parsedFileColumns = parsedColumns;
+    const preview = data.preview || [];
+
+    // ✅ UI state (cross-page, consumed by saveMappings)
+    window.parsedHeaderRowIndex = headerRow;
+    window.parsedSheetName = sheetName;
+    window.parsedDelimiter = (delim === null ? ',' : delim);
+
+    if (previewDiv) previewDiv.style.display = 'block';
+    renderPreview(preview);
+
+    step2Complete = true;
+}
+
+function renderPreview(preview) {
+    const head = document.getElementById('previewHead');
+    const body = document.getElementById('previewBody');
+
+    if (!preview.length) {
+        head.innerHTML = '';
+        body.innerHTML = '<tr><td colspan="10" class="text-muted">No preview data</td></tr>';
+        return;
+    }
+
+    const headers = Object.keys(preview[0]);
+    head.innerHTML = `<tr>${headers.map(h => `<th>${h}</th>`).join('')}</tr>`;
+
+    const rows = preview.slice(0, 5);
+    body.innerHTML = rows.map(row =>
+        `<tr>${headers.map(h => `<td>${row[h] || ''}</td>`).join('')}</tr>`
+    ).join('');
+}
+
+
+// ============================================================
+// FETCH SHEETS (Excel only)
+// ============================================================
+async function fetchSheets() {
+    if (!sampleFileInput.files.length) {
+        if (sheetStatus) sheetStatus.innerHTML = '<span class="text-warning">⚠️ Select an Excel file first</span>';
+        return;
+    }
+
+    const file = sampleFileInput.files[0];
+    if (!isExcelFile(file)) {
+        if (sheetStatus) sheetStatus.innerHTML = '<span class="text-warning">⚠️ Sheet selection is only for Excel files</span>';
+        return;
+    }
+
+    const formData = new FormData();
+    formData.append('file', file);
+
+    if (sheetStatus) sheetStatus.innerHTML = '<span class="text-info">⏳ Fetching sheets...</span>';
+    if (fetchSheetsBtn) fetchSheetsBtn.disabled = true;
+
+    try {
+        const response = await fetch('/api/parse-sheets', {
+            method: 'POST',
+            body: formData,
+        });
+
+        if (!response.ok) {
+            const err = await response.json().catch(() => ({}));
+            throw new Error(err.detail || `HTTP ${response.status}`);
+        }
+
+        const data = await response.json();
+        availableSheets = data.available_sheets || [];
+        uploadedFilePath = data.file_path || null;
+
+        sheetSelect.innerHTML = '';
+        availableSheets.forEach(name => {
+            const opt = document.createElement('option');
+            opt.value = name;
+            opt.textContent = name;
+            sheetSelect.appendChild(opt);
+        });
+
+        if (availableSheets.length > 0) {
+            sheetSelect.value = availableSheets[0];
+            selectedSheet = availableSheets[0];
+            if (sheetStatus) sheetStatus.innerHTML =
+                `<span class="text-success">✅ ${availableSheets.length} sheet(s) found</span>`;
+        } else {
+            selectedSheet = null;
+            if (sheetStatus) sheetStatus.innerHTML =
+                '<span class="text-warning">⚠️ No sheets found</span>';
+        }
+
+        sheetSelectorRow.style.display = 'block';
+    } catch (e) {
+        console.error('fetchSheets failed:', e);
+        if (sheetStatus) sheetStatus.innerHTML = `<span class="text-danger">❌ ${e.message}</span>`;
+        showToast('Error', `Failed to fetch sheets: ${e.message}`, 'danger');
+    } finally {
+        if (fetchSheetsBtn) fetchSheetsBtn.disabled = false;
+        updateStepStates();
+    }
+}
+
+
+// ============================================================
+// Step 1: Get supplier name
+// ============================================================
+function getSupplierName() {
     let supplierName = '';
 
     const data = getPageData();
     if (data?.supplierName) {
         supplierName = data.supplierName;
-        console.log(`${TAG} [1] supplierName from getPageData():`, supplierName);
     } else {
         const nameInput = document.getElementById('supplierName');
         if (nameInput) {
             supplierName = nameInput.value.trim();
-            console.log(`${TAG} [1] supplierName from #supplierName input:`, supplierName);
         }
     }
 
@@ -190,7 +625,6 @@ async function saveMappings() {
         const titleEl = document.getElementById('detailTitle');
         if (titleEl) {
             supplierName = titleEl.textContent?.trim() || '';
-            console.log(`${TAG} [1] supplierName from #detailTitle:`, supplierName);
         }
     }
 
@@ -200,13 +634,22 @@ async function saveMappings() {
         showToast('Error', 'Supplier name not found', 'danger');
         return;
     }
+    return supplierName;
+}
+
+// ============================================================
+// SAVE MAPPINGS – WITH TARGET NAME + EDITABLE CONFIG + TRACE LOGS
+// ============================================================
+
+async function saveMappings() {
+    const TAG = '[saveMappings]';
+    const statusDiv = document.getElementById('saveStatus');
+    const supplierName = getSupplierName();
 
     // ============================================================
     // Step 2: Get page data
     // ============================================================
     const pageData = getPageData();
-    console.log(`${TAG} [2] pageData:`, pageData);
-
     // ============================================================
     // Step 3: Determine source fields
     // ============================================================
@@ -214,10 +657,8 @@ async function saveMappings() {
 
     if (pageData?.sourceFields && pageData.sourceFields.length > 0) {
         sourceFields = pageData.sourceFields;
-        console.log(`${TAG} [3] sourceFields from pageData (backend):`, sourceFields.length);
     } else if (parsedFileColumns && parsedFileColumns.length > 0) {
         sourceFields = parsedFileColumns;
-        console.log(`${TAG} [3] sourceFields from parsedFileColumns:`, sourceFields.length);
     } else {
         const sourceFieldsEl = document.getElementById('page-data');
         if (sourceFieldsEl) {
@@ -225,109 +666,65 @@ async function saveMappings() {
                 const sourceData = JSON.parse(sourceFieldsEl.dataset.sourceFields || '[]');
                 if (sourceData.length > 0) {
                     sourceFields = sourceData;
-                    console.log(`${TAG} [3] sourceFields from #page-data fallback:`, sourceFields.length);
                 }
             } catch (e) {
                 console.warn(`${TAG} [3] Could not parse source_fields from data attribute:`, e);
             }
         }
     }
-    console.log(`${TAG} [3] Final sourceFields:`, sourceFields);
 
     // ============================================================
     // Step 3b: Read editable config fields (TRACE FOCUS)
     // ============================================================
     // Fallback chain per field:
     //   input element  →  pageData (edit page)  →  window.parsed* (create page)  →  default
-    console.log(`${TAG} [3b] ─── CONFIG FIELD TRACE BEGIN ───`);
 
     const sheetNameInput = document.getElementById('sheetNameInput');
     const headerRowInput = document.getElementById('headerRowInput');
     const delimiterInput = document.getElementById('delimiterInput');
-
-    console.log(`${TAG} [3b] sheetNameInput element:`, sheetNameInput);
-    console.log(`${TAG} [3b] headerRowInput element:`, headerRowInput);
-    console.log(`${TAG} [3b] delimiterInput element:`, delimiterInput);
-    console.log(`${TAG} [3b] window.parsed*:`, {
-        parsedHeaderRowIndex: window.parsedHeaderRowIndex,
-        parsedSheetName: window.parsedSheetName,
-        parsedDelimiter: window.parsedDelimiter,
-    });
 
     // ── sheet_name ──
     const sheetName = sheetNameInput
         ? (sheetNameInput.value.trim() || null)
         : (pageData?.sheetName ?? window.parsedSheetName ?? null);
 
-    console.log(`${TAG} [3b] sheetName:`,
-        'input=', sheetNameInput?.value,
-        '| pageData=', pageData?.sheetName,
-        '| window.parsed=', window.parsedSheetName,
-        '| resolved=', sheetName);
 
     // ── header_row_index ──
     const headerRowRaw = headerRowInput
         ? headerRowInput.value.trim()
         : (pageData?.headerRowIndex ?? window.parsedHeaderRowIndex ?? '');
 
-    console.log(`${TAG} [3b] headerRowRaw:`,
-        'input=', headerRowInput?.value,
-        '| pageData=', pageData?.headerRowIndex,
-        '| window.parsed=', window.parsedHeaderRowIndex,
-        '| raw=', JSON.stringify(headerRowRaw));
-
     const headerRowIndex = headerRowRaw !== '' && headerRowRaw != null
         ? Number.parseInt(headerRowRaw, 10)
         : 1;
-    console.log(`${TAG} [3b] headerRowIndex parsed:`,
-        headerRowIndex, '| typeof:', typeof headerRowIndex);
 
     // ── delimiter ──
     const delimiter = delimiterInput
         ? (delimiterInput.value.trim() || ',')
         : (pageData?.delimiter ?? window.parsedDelimiter ?? ',');
 
-    console.log(`${TAG} [3b] delimiter:`,
-        'input=', delimiterInput?.value,
-        '| pageData=', pageData?.delimiter,
-        '| window.parsed=', window.parsedDelimiter,
-        '| resolved=', delimiter);
-
-    console.log(`${TAG} [3b] ─── CONFIG FIELD TRACE END ───`);
-
     // ============================================================
     // Step 4: Collect current state from UI
     // ============================================================
     const currentState = collectMappingsFromUI();
-    console.log(`${TAG} [4] currentState keys:`, Object.keys(currentState).length);
 
     // ============================================================
     // Step 5: Ensure initialMappings exists
     // ============================================================
     if (!initialMappings || Object.keys(initialMappings).length === 0) {
         initialMappings = JSON.parse(JSON.stringify(currentState));
-        console.log(`${TAG} [5] initialMappings seeded from currentState`);
-    } else {
-        console.log(`${TAG} [5] initialMappings already exists:`,
-            Object.keys(initialMappings).length, 'keys');
     }
 
     // ============================================================
     // Step 6: Detect changes
     // ============================================================
     const changes = detectChanges(currentState, initialMappings);
-    console.log(`${TAG} [6] mapping changes detected:`, changes.length);
 
     const configChanged =
         (sheetName || null) !== (pageData?.sheetName || null) ||
         (Number.isInteger(headerRowIndex) ? headerRowIndex : null) !== (pageData?.headerRowIndex ?? null) ||
         (delimiter || ',') !== (pageData?.delimiter || ',');
 
-    console.log(`${TAG} [6] configChanged:`, configChanged, {
-        sheetName: { current: sheetName, original: pageData?.sheetName },
-        headerRowIndex: { current: headerRowIndex, original: pageData?.headerRowIndex },
-        delimiter: { current: delimiter, original: pageData?.delimiter },
-    });
 
     if (changes.length === 0 && !configChanged) {
         console.warn(`${TAG} [6] ⚠️ No changes — aborting save`);
@@ -340,7 +737,6 @@ async function saveMappings() {
     // Step 7: Validate mandatory fields
     // ============================================================
     const mandatoryErrors = validateMandatoryFields(currentState);
-    console.log(`${TAG} [7] mandatory errors:`, mandatoryErrors.length);
     if (mandatoryErrors.length > 0) {
         console.error(`${TAG} [7] ❌ Mandatory validation failed:`, mandatoryErrors);
         highlightErrorRows(mandatoryErrors);
@@ -362,7 +758,6 @@ async function saveMappings() {
         is_mandatory: state.is_mandatory || false,
         prepopulated_value: state.prepopulated_value || ''
     }));
-    console.log(`${TAG} [8] mappingList length:`, mappingList.length);
 
     if (mappingList.length === 0) {
         console.warn(`${TAG} [8] ⚠️ Empty mappingList — aborting`);
@@ -389,8 +784,7 @@ async function saveMappings() {
     }
 
     const isNew = isNewSupplierPage();
-    console.log(`${TAG} [9] isNewSupplierPage:`, isNew);
-
+    // TODO
     // ============================================================
     // Step 10: Build payload
     // ============================================================
@@ -403,17 +797,10 @@ async function saveMappings() {
         delimiter: delimiter,
     };
 
-    console.log(`${TAG} [10] ─── FINAL PAYLOAD ───`);
-    console.log(`${TAG} [10] sheet_name:`, payload.sheet_name, `(typeof: ${typeof payload.sheet_name})`);
-    console.log(`${TAG} [10] header_row_index:`, payload.header_row_index, `(typeof: ${typeof payload.header_row_index})`);
-    console.log(`${TAG} [10] delimiter:`, payload.delimiter, `(typeof: ${typeof payload.delimiter})`);
-    console.log(`${TAG} [10] Full payload JSON:`, JSON.stringify(payload, null, 2));
-
     // ============================================================
     // Step 11: Send to backend
     // ============================================================
-    const url = `/api/mappings/${encodeURIComponent(supplierName)}`;
-    console.log(`${TAG} [11] POST →`, url);
+    const url = `/api/suppliers/${encodeURIComponent(supplierName)}`;
 
     saveBtn.disabled = true;
     statusDiv.innerHTML = `<span class="text-info">⏳ Saving ${mappingList.length} mapping(s)...</span>`;
@@ -427,7 +814,6 @@ async function saveMappings() {
             body: JSON.stringify(payload)
         });
 
-        console.log(`${TAG} [11] Response status:`, response.status, response.statusText);
 
         if (!response.ok) {
             let errorMessage = `HTTP ${response.status}`;
@@ -446,8 +832,6 @@ async function saveMappings() {
         }
 
         const result = await response.json();
-        console.log(`${TAG} [11] ✅ Save success. Response:`, result);
-        console.log(`${TAG} [11] ⚠️ Console will clear after redirect in 1.5s — capture logs now.`);
 
         hasChanges = false;
         updateSaveButton();
@@ -460,7 +844,6 @@ async function saveMappings() {
             const redirectUrl = result.supplier_id
                 ? `/show-mapping/${result.supplier_id}`
                 : window.location.href;
-            console.log(`${TAG} [11] Redirecting →`, redirectUrl);
             if (result.supplier_id) {
                 window.location.href = redirectUrl;
             } else {
@@ -511,3 +894,22 @@ window.detectChanges = detectChanges;
 window.highlightErrorRows = highlightErrorRows;
 window.scrollToFirstError = scrollToFirstError;
 window.renderValidationErrors = renderValidationErrors;
+
+
+
+// ============================================================
+// INIT
+// ============================================================
+document.addEventListener('DOMContentLoaded', async function () {
+    if (sampleFileInput) {
+        sampleFileInput.addEventListener('change', handleFileChange);
+    }
+    if (sheetSelect) {
+        sheetSelect.addEventListener('change', function () {
+            selectedSheet = this.value || null;
+            updateStepStates();
+        });
+    }
+
+    updateStepStates();
+});
