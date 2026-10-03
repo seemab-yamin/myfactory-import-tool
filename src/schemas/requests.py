@@ -13,12 +13,12 @@ class ParseSample(StrictRequestModel):
 
 
 class SaveMappingsRequest(StrictRequestModel):
-    source_fields: List[str] = (Body(...),)
-    mappings: List[dict] = (Body(...),)
-    is_new_supplier: bool = (Body(False),)
-    delimiter: Optional[str] = (Body(None),)
-    header_row_index: int = (Body(1),)
-    sheet_name: Optional[str] = (Body(None),)
+    source_fields: List[str] = None
+    mappings: Optional[List[dict]] = None
+    is_new_supplier: bool = Body(False)
+    delimiter: Optional[str] = None
+    header_row_index: Optional[int] = None
+    sheet_name: Optional[str] = None
 
 
 class UploadRequest(StrictRequestModel):
