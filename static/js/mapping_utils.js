@@ -121,12 +121,13 @@ function collectMappingsFromUI(
         const targetId = parseInt(select.dataset.targetId);
         const sourceField = select.value === '' || select.value === 'None' ? null : select.value;
         const mandatoryCheck = document.querySelector(`${mandatorySelector}[data-target-id="${targetId}"]`);
+        const isDbRequired = select.dataset.dbRequired;
         const prepopulatedInput = document.querySelector(`${prepopulatedSelector}[data-target-id="${targetId}"]`);
-
         currentState[targetName] = {
             target_id: targetId,
             source_field: sourceField,
             is_mandatory: mandatoryCheck ? mandatoryCheck.checked : false,
+            is_db_required: isDbRequired === true || isDbRequired === "true",
             prepopulated_value: prepopulatedInput ? prepopulatedInput.value.trim() : '',
             data_type: select.dataset.type || ''
         };
@@ -372,6 +373,7 @@ function buildMappingUI(targetCols, fileCols) {
     let html = '';
     sorted.forEach((col, index) => {
         const isMandatory = col.nullable === false;
+        const isDbRequired = col.nullable === false;
         const fieldId = col.target_field_id;
         const fieldName = col.name || col.field_name || 'Unknown';
         const rowId = `row-${index}`;
@@ -383,6 +385,7 @@ function buildMappingUI(targetCols, fileCols) {
             prepopulated_value: null,
             target_id: fieldId,
             is_mandatory: isMandatory,
+            is_db_required: isDbRequired
         };
         currentMappings[fieldId] = { ...init };
         initialMappings[fieldId] = { ...init };
@@ -391,12 +394,12 @@ function buildMappingUI(targetCols, fileCols) {
             <td>${index + 1}</td>
             <td>
                 <strong>${fieldName}</strong>
-                ${isMandatory ? '<span class="text-danger">*</span>' : ''}
+                ${isDbRequired ? '<span class="text-danger">*</span>' : ''}
                 <br><span class="text-muted small">${col.type || ''}</span>
                 <br><span class="text-muted small">ID: ${fieldId}</span>
             </td>
             <td>
-                <select class="form-select form-select-sm source-select" data-target-id="${fieldId}" data-target-name="${fieldName}" data-type="${col.type || ''}">
+                <select class="form-select form-select-sm source-select" data-target-id="${fieldId}" data-target-name="${fieldName}" data-type="${col.type || ''}" data-db-required="${isDbRequired}">
                     <option value="None">None</option>
                     ${fileCols.map(fc => `<option value="${fc}">${fc}</option>`).join('')}
                 </select>
@@ -756,6 +759,7 @@ async function saveMappings() {
         data_type: state.data_type || '',
         is_active: true,
         is_mandatory: state.is_mandatory || false,
+        is_db_required: state.is_db_required || false,
         prepopulated_value: state.prepopulated_value || ''
     }));
 
@@ -868,7 +872,7 @@ async function saveMappings() {
 function validateMandatoryFields(currentState) {
     const errors = [];
     for (const [targetName, state] of Object.entries(currentState)) {
-        if (state.is_mandatory) {
+        if (state.is_mandatory || state.is_db_required) {
             const hasSource = state.source_field && state.source_field.trim() !== '';
             const hasPrepop = state.prepopulated_value && state.prepopulated_value.trim() !== '';
             if (!hasSource && !hasPrepop) {

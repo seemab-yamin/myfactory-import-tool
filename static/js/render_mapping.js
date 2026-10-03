@@ -18,7 +18,7 @@ function renderMappingUI() {
     const { supplierId, supplierName, sourceFields, supplierMappings } = data;
 
     // ✅ supplierMappings is a list of mapping objects
-    // Each mapping has: target_field_id, target_field_name, source_field, is_mandatory, prepopulated_value
+    // Each mapping has: target_field_id, target_field_name, source_field, is_mandatory, is_db_required, prepopulated_value
     const mappingsList = supplierMappings || [];
 
 
@@ -45,12 +45,14 @@ function renderMappingUI() {
             const dataType = item.data_type || '';
             const hasSource = item.source_field || '';
             const isMandatory = item.is_mandatory || false;
+            const isDbRequired = item.is_db_required || false;
             const prepopulatedValue = item.prepopulated_value || '';
 
             // Store current state for change detection
             currentMappings[targetName] = {
                 source_field: hasSource,
                 is_mandatory: isMandatory,
+                is_db_required: isDbRequired,
                 prepopulated_value: prepopulatedValue,
                 target_id: targetId,
                 data_type: dataType,
@@ -60,6 +62,7 @@ function renderMappingUI() {
             initialMappings[targetName] = {
                 source_field: hasSource,
                 is_mandatory: isMandatory,
+                is_db_required: isDbRequired,
                 prepopulated_value: prepopulatedValue,
                 target_id: targetId,
                 data_type: dataType,
@@ -70,12 +73,12 @@ function renderMappingUI() {
                 <td>${index + 1}</td>
                 <td>
                     <strong>${targetName}</strong>
-                    ${isMandatory ? '<span class="text-danger">*</span>' : ''}
+                    ${isDbRequired ? '<span class="text-danger">*</span>' : ''}
                     <br><span class="text-muted small">${dataType}</span>
                     <br><span class="text-muted small">ID: ${targetId}</span>
                 </td>
                 <td>
-                    <select class="form-select form-select-sm source-select" data-target-id="${targetId}" data-target-name="${targetName}" data-type="${dataType}">
+                    <select class="form-select form-select-sm source-select" data-target-id="${targetId}" data-target-name="${targetName}" data-type="${dataType}" data-db-required="${isDbRequired}">
                         <option value="None">None</option>
                         ${sourceFields.map(sf => `
                             <option value="${sf}" ${hasSource === sf ? 'selected' : ''}>
@@ -87,8 +90,8 @@ function renderMappingUI() {
                 <td class="text-center">
                     <input type="checkbox" class="form-check-input mandatory-check" 
                            data-target-id="${targetId}"
-                           ${isMandatory ? 'checked' : ''}
-                           ${isMandatory ? 'disabled' : ''}>
+                           ${isDbRequired ? 'checked' : isMandatory ? 'checked' : ''}
+                           ${isDbRequired ? 'disabled' : ''}>
                 </td>
                 <td>
                     <input type="text" class="form-control form-control-sm prepopulated-value" 
