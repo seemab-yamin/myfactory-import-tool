@@ -104,10 +104,10 @@ class FieldMapper:
         supplier_name: str,
         source_fields: List[str],
         mappings: List[dict],
-        is_new_supplier: bool = False,
         header_row_index: Optional[int] = None,
         sheet_name: Optional[str] = None,
         delimiter: str = ",",
+        is_new_supplier: bool = False,
     ):
         """
         Save mappings for a supplier.
@@ -127,10 +127,8 @@ class FieldMapper:
         mappings_dict = {
             m["target_field_name"]: m for m in mappings if m.get("target_field_name")
         }
-
         with local_session() as session:
             if is_new_supplier:
-
                 sup = Supplier(
                     name=supplier_name,
                     source_fields=source_fields,
@@ -142,7 +140,6 @@ class FieldMapper:
                 session.add(sup)
                 session.flush()
                 supplier_id = sup.id
-
                 logger.info(
                     f"Created mapping: name={supplier_name}, "
                     f"source_fields={len(source_fields)}, "
@@ -257,8 +254,8 @@ class FieldMapper:
             supplier = (
                 session.query(Supplier).filter(Supplier.id == supplier_id).first()
             )
-            if not supplier:
-                return None
+            if supplier is None:
+                raise ValueError(f"Supplier with ID {supplier_id} not found")
 
             return {
                 "id": supplier.id,
@@ -322,6 +319,133 @@ class FieldMapper:
                 }
                 for tf in target_fields
             ]
+
+    def sync_supplier_excel(
+        self,
+        supplier_id: int,
+        new_source_columns: list[str],
+    ) -> dict:
+        """
+        Compare new file columns against saved supplier mappings.
+
+        Does not modify or save anything.
+        """
+
+        supplier = self.get_supplier_by_id(supplier_id)
+
+        if supplier is None:
+            raise ValueError(f"Supplier with ID {supplier_id} not found")
+
+        mappings = supplier.get("mappings") or {}
+
+        # Deduplicate while preserving file column order.
+        new_columns = list(
+            dict.fromkeys(
+                column
+                for column in new_source_columns
+                if isinstance(column, str) and column.strip()
+            )
+        )
+
+        new_column_set = set(new_columns)
+
+        kept = []
+        broken = []
+
+        # Track every source column currently assigned to a target.
+        existing_source_columns = set()
+
+        for target_field, mapping in mappings.items():
+            source_column = mapping.get("source_field")
+
+            if not source_column:
+                continue
+
+            existing_source_columns.add(source_column)
+
+            if source_column in new_column_set:
+                kept.append(
+                    {
+                        "target_field": target_field,
+                        "source_column": source_column,
+                    }
+                )
+                continue
+
+            match = self.auto_match_fields(
+                new_columns,
+                [source_column],
+            )
+
+            suggested_source = None
+
+            if match:
+                suggestion = match.get(source_column)
+                if suggestion:
+                    suggested_source = suggestion.get("source_column")
+
+            broken.append(
+                {
+                    "target_field": target_field,
+                    "old_source": source_column,
+                    "suggested_source": suggested_source,
+                    "is_mandatory": mapping.get("is_mandatory", False),
+                }
+            )
+
+        new = [
+            column for column in new_columns if column not in existing_source_columns
+        ]
+
+        return {
+            "kept": kept,
+            "broken": broken,
+            "new": new,
+            "source_columns": new_columns,
+        }
+
+    def apply_sync(
+        self,
+        supplier_id: int,
+        resolved_mappings: list[dict],
+    ) -> bool:
+        """Apply resolved Excel source mappings using the existing save flow."""
+
+        # Validate that every mapping has been resolved.
+        broken = [
+            mapping for mapping in resolved_mappings if not mapping.get("source_column")
+        ]
+
+        if broken:
+            raise ValueError(
+                f"{len(broken)} mappings unresolved: "
+                f"{[m['target_field'] for m in broken]}"
+            )
+
+        supplier = self.get_supplier_by_id(supplier_id)
+
+        if supplier is None:
+            raise ValueError(f"Supplier with ID {supplier_id} not found")
+
+        mappings = [
+            {
+                **mapping,
+                "source_field": mapping["source_column"],
+                "target_field_name": mapping["target_field"],
+            }
+            for mapping in resolved_mappings
+        ]
+
+        self.save_mappings(
+            supplier_name=supplier["name"],
+            source_fields=supplier.get("source_fields") or [],
+            mappings=mappings,
+            header_row_index=supplier.get("header_row_index"),
+            sheet_name=supplier.get("sheet_name"),
+            delimiter=supplier.get("delimiter", ","),
+        )
+
+        return True
 
     # ============================================================
     # AUTO-MATCH FIELDS

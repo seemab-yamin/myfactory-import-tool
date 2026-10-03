@@ -3,8 +3,10 @@
 import tempfile
 from datetime import datetime
 from pathlib import Path
-from typing import List, Optional
+from typing import Annotated, Optional
 
+import aiofiles
+import pandas as pd
 from fastapi import (
     APIRouter,
     BackgroundTasks,
@@ -16,7 +18,6 @@ from fastapi import (
 )
 from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
-from pydantic import BaseModel
 from starlette.requests import Request
 
 from src.config_manager import ensure_configured, get_config_manager
@@ -24,6 +25,8 @@ from src.db import get_db_manager, local_session
 from src.importer import get_importer, run_import
 from src.logger import get_logger
 from src.mapper import get_mapper
+from src.models import ImportAudit, SchemaChangeLog, Supplier
+from src.schemas.requests import ParseSample, SaveMappingsRequest, UploadRequest
 from src.services.schema_drift_service import SchemaDriftService
 
 logger = get_logger(__name__)
@@ -42,8 +45,6 @@ UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
-MAX_BATCH_SIZE = 100000
-MIN_BATCH_SIZE = 1
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 
 # ========== HTML Pages ==========
@@ -177,23 +178,8 @@ async def health():
 
 @router.post("/upload")
 async def upload_file(
-    background_tasks: BackgroundTasks,
-    file: UploadFile = File(...),
-    supplier_id: int = Form(...),
-    dry_run: bool = Form(False),
-    batch_size: int = Form(1000),
-    header_row_index: int = Form(1),
-    sheet_name: str = Form(None),
+    background_tasks: BackgroundTasks, payload: Annotated[UploadRequest, Form()]
 ):
-    """
-    Upload and import a file.
-
-    Requirements fulfilled:
-    1. Input Validation Layer
-    2. File Handling Layer
-    3. Dry-Run Mode (Synchronous)
-    """
-
     # ============================================================
     # 1. INPUT VALIDATION LAYER
     # ============================================================
@@ -203,10 +189,10 @@ async def upload_file(
         raise HTTPException(status_code=400, detail="Database not configured.")
 
     # ✅ 1.2 Validate file type (.csv, .xlsx, .xls)
-    if not file.filename:
+    if not payload.file.filename:
         raise HTTPException(status_code=400, detail="No filename provided.")
 
-    file_ext = Path(file.filename).suffix.lower()
+    file_ext = Path(payload.file.filename).suffix.lower()
     if file_ext not in ALLOWED_EXTENSIONS:
         raise HTTPException(
             status_code=400,
@@ -216,9 +202,9 @@ async def upload_file(
     # ✅ 1.3 Validate file size (optional but recommended)
     file_size = 0
     try:
-        content = await file.read()
+        content = await payload.file.read()
         file_size = len(content)
-        await file.seek(0)  # Reset file pointer for later use
+        await payload.file.seek(0)  # Reset file pointer for later use
     except Exception as e:
         raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
 
@@ -230,66 +216,53 @@ async def upload_file(
     if file_size == 0:
         raise HTTPException(status_code=400, detail="File is empty.")
 
-    # ✅ 1.5 Validate batch_size (min 1, max 10000)
-    if not isinstance(batch_size, int):
-        raise HTTPException(status_code=400, detail="batch_size must be an integer.")
-
-    if batch_size < MIN_BATCH_SIZE:
-        raise HTTPException(
-            status_code=400, detail=f"batch_size must be at least {MIN_BATCH_SIZE}."
-        )
-
-    if batch_size > MAX_BATCH_SIZE:
-        raise HTTPException(
-            status_code=400, detail=f"batch_size must be at most {MAX_BATCH_SIZE}."
-        )
-
     # ============================================================
     # 2. FILE HANDLING LAYER
     # ============================================================
 
     # ✅ 2.1 Save uploaded file to UPLOAD_DIR with timestamp
     timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    safe_filename = f"{timestamp}_{file.filename}"
+    file_size = 0
+    safe_filename = f"{timestamp}_{Path(payload.file.filename).name}"
     file_path = UPLOAD_DIR / safe_filename
 
     try:
-        UPLOAD_DIR.mkdir(parents=True, exist_ok=True)
-        with open(file_path, "wb") as f:
-            # Content is already read, write it
-            f.write(content)
+        async with aiofiles.open(file_path, "wb") as f:
+            while chunk := await payload.file.read(1024 * 1024):
+                file_size += len(chunk)
+
+                if file_size > MAX_FILE_SIZE:
+                    raise HTTPException(
+                        status_code=400,
+                        detail=f"File too large. Max size: {MAX_FILE_SIZE // (1024 * 1024)} MB",
+                    )
+
+                await f.write(chunk)
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
-
-    # ✅ 2.2 Return file_path for background task
-    # ✅ 2.3 Handle file read errors (already handled above)
 
     # ============================================================
     # 3. DRY-RUN MODE (Synchronous)
     # ============================================================
 
-    if dry_run:
-        logger.info(f"Starting dry-run import for supplier_id={supplier_id}")
+    if payload.dry_run:
+        logger.info(f"Starting dry-run import for supplier_id={payload.supplier_id}")
         try:
             importer = get_importer()
             result = importer.import_file(
                 {
                     "file_path": str(file_path),
-                    "supplier_id": supplier_id,
+                    "supplier_id": payload.supplier_id,
                     "dry_run": True,
-                    "batch_size": batch_size,
-                    "header_row_index": header_row_index,
-                    "sheet_name": sheet_name,
+                    "batch_size": payload.batch_size,
+                    "header_row_index": payload.header_row_index,
+                    "sheet_name": payload.sheet_name,
                 }
             )
 
-            # ✅ 3.1 Parse file (delimiter, encoding) - handled by importer
-            # ✅ 3.2 Validate against mapping - handled by importer
-            # ✅ 3.3 Return preview rows + validation errors
-
             return {
                 "status": "dry_run_completed",
-                "supplier_id": supplier_id,
+                "supplier_id": payload.supplier_id,
                 "total_rows": result.total_rows,
                 "preview": (
                     result.details.get("preview_rows", []) if result.details else []
@@ -300,8 +273,8 @@ async def upload_file(
                 "warnings": result.warnings if hasattr(result, "warnings") else [],
                 "log_file": result.log_file,
                 "file_path": str(file_path),
-                "file_name": file.filename,
-                "batch_size": batch_size,
+                "file_name": payload.file.filename,
+                "batch_size": payload.batch_size,
             }
         except Exception as e:
             logger.error(f"Dry-run failed: {e}")
@@ -319,20 +292,20 @@ async def upload_file(
         run_import,
         import_id=import_id,  # ✅ Add
         file_path=str(file_path),
-        supplier_id=supplier_id,
-        batch_size=batch_size,
-        header_row_index=header_row_index,
-        sheet_name=sheet_name,
+        supplier_id=payload.supplier_id,
+        batch_size=payload.batch_size,
+        header_row_index=payload.header_row_index,
+        sheet_name=payload.sheet_name,
     )
 
     return {
         "status": "accepted",
         "message": "Import started in background",
         "import_id": import_id,  # ✅ Return to client
-        "supplier_id": supplier_id,
+        "supplier_id": payload.supplier_id,
         "file_path": str(file_path),
-        "file_name": file.filename,
-        "batch_size": batch_size,
+        "file_name": payload.file.filename,
+        "batch_size": payload.batch_size,
     }
 
 
@@ -352,18 +325,15 @@ async def get_audit_detail(audit_id: int):
     """Get detailed audit record."""
     if not ensure_configured():
         raise HTTPException(status_code=400, detail="Database not configured.")
-
     with local_session() as session:
-        from src.models import ImportAudit
-
         audit = session.query(ImportAudit).filter(ImportAudit.id == audit_id).first()
         if not audit:
             raise HTTPException(status_code=404, detail="Audit record not found")
         return audit.to_dict()
 
 
-@router.get("/api/mappings-list")
-async def api_get_mappings_list():
+@router.get("/api/suppliers")
+async def get_mappings():
     """Return list of all suppliers."""
 
     if not ensure_configured():
@@ -373,7 +343,7 @@ async def api_get_mappings_list():
     return {"suppliers": suppliers, "total": len(suppliers)}
 
 
-@router.get("/api/mapping_name/exists/{supplier_name}")
+@router.get("/api/mapping_name/exists/{supplier_name:str}")
 async def mapping_name_exists(supplier_name: str):
     if not ensure_configured():
         raise HTTPException(status_code=400, detail="Database not configured.")
@@ -384,8 +354,8 @@ async def mapping_name_exists(supplier_name: str):
     return {"supplier_name": supplier_name, "exists": exists}
 
 
-@router.get("/api/mappings/{supplier_id:int}")
-async def api_get_mappings(supplier_id: int, active_only: bool = False):
+@router.get("/api/suppliers/{supplier_id:int}")
+async def get_suppliers(supplier_id: int, active_only: bool = False):
     """Return full mapping for a specific supplier by ID."""
 
     if not ensure_configured():
@@ -395,9 +365,6 @@ async def api_get_mappings(supplier_id: int, active_only: bool = False):
 
     mapper = get_mapper()
     mappings = mapper.get_mappings(supplier_id, active_only)
-
-    # Get supplier name for response
-    from src.models import Supplier
 
     with local_session() as session:
         supplier = session.query(Supplier).filter(Supplier.id == supplier_id).first()
@@ -411,15 +378,11 @@ async def api_get_mappings(supplier_id: int, active_only: bool = False):
     }
 
 
-@router.post("/api/mappings/{supplier_name:str}")
+# accept optional flag argument
+@router.post("/api/suppliers/{supplier_name:str}")
 async def api_save_mappings(
     supplier_name: str,
-    source_fields: List[str] = Body(...),
-    mappings: List[dict] = Body(...),
-    is_new_supplier: bool = Body(False),
-    delimiter: Optional[str] = Body(None),  # ← Body, not bare
-    header_row_index: int = Body(1),  # ← Body
-    sheet_name: Optional[str] = Body(None),
+    payload: SaveMappingsRequest,
 ):
     """Save a mappings for a supplier."""
 
@@ -430,14 +393,13 @@ async def api_save_mappings(
     mapper = get_mapper()
     _, supplier_id = mapper.save_mappings(
         supplier_name=supplier_name,
-        source_fields=source_fields,
-        mappings=mappings,
-        is_new_supplier=is_new_supplier,
-        header_row_index=header_row_index,
-        sheet_name=sheet_name,
-        delimiter=delimiter,
+        source_fields=payload.source_fields,
+        mappings=payload.mappings,
+        is_new_supplier=payload.is_new_supplier,
+        header_row_index=payload.header_row_index,
+        sheet_name=payload.sheet_name,
+        delimiter=payload.delimiter,
     )
-
     return {
         "status": "created",
         "supplier_id": supplier_id,
@@ -559,7 +521,6 @@ async def get_import_by_import_id(import_id: str):
         raise HTTPException(status_code=400, detail="Database not configured.")
 
     from src.db import local_session
-    from src.models import ImportAudit
 
     with local_session() as session:
         audit = (
@@ -590,23 +551,6 @@ async def download_file(file_path: str):
     if not path.exists():
         raise HTTPException(status_code=404, detail="File not found")
     return FileResponse(path)
-
-
-# ========== Schema Models ==========
-
-
-class ColumnSchema(BaseModel):
-    name: str
-    type: str
-    nullable: bool
-    max_length: Optional[int] = None
-    default: Optional[str] = None
-
-
-class TableSchemaResponse(BaseModel):
-    table_name: str
-    total_columns: int
-    columns: List[ColumnSchema]
 
 
 @router.get("/api/schema")
@@ -674,23 +618,15 @@ async def parse_sheets(file: UploadFile = File(...)):
 
 
 @router.post("/api/parse-sample")
-async def parse_sample_file(
-    file: UploadFile = File(...),
-    delimiter: Optional[str] = Form(None),  # ← Form, not bare
-    header_row_index: int = Form(1),  # ← Form
-    sheet_name: Optional[str] = Form(None),  # ← Form
-):
+async def parse_sample_file(payload: Annotated[ParseSample, Form()]):
     """
-    /api/parse-sample accepts header_row_index, sheet_name; returns available_sheets, effective_sheet, preview, columns	routes.py
+    /api/parse-sample accepts header_row_index, delimiter, sheet_name; returns available_sheets, effective_sheet, preview, columns	routes.py
     """
-
-    import pandas as pd
 
     try:
-        content = await file.read()
-
+        content = await payload.file.read()
         # Determine file type
-        filename = file.filename.lower()
+        filename = payload.file.filename.lower()
         suffix = Path(filename).suffix
 
         if suffix not in [".csv", ".xlsx", ".xls"]:
@@ -704,9 +640,9 @@ async def parse_sample_file(
         importer = get_importer()
         df, available_sheets = importer._read_file(
             file_path=str(tmp_file_path),
-            delimiter=delimiter,
-            header_row_index=header_row_index,
-            sheet_name=sheet_name,
+            delimiter=payload.delimiter,
+            header_row_index=payload.header_row_index,
+            sheet_name=payload.sheet_name,
         )
 
         if df.empty:
@@ -721,15 +657,14 @@ async def parse_sample_file(
             .replace({pd.NA: None, float("nan"): None})
             .to_dict(orient="records")
         )
-
         return {
             "columns": columns,
             "preview": preview,
             "row_count": len(df),
-            "delimiter": delimiter,
+            "delimiter": payload.delimiter,
             "column_count": len(columns),
             "available_sheets": available_sheets,
-            "effective_sheet": sheet_name,
+            "effective_sheet": payload.sheet_name,
         }
 
     except Exception as e:
@@ -770,8 +705,6 @@ async def api_schema_change_log(limit: int = 20):
     """
     if not ensure_configured():
         raise HTTPException(status_code=400, detail="Database not configured.")
-
-    from src.models import SchemaChangeLog
 
     with local_session() as session:
         logs = (

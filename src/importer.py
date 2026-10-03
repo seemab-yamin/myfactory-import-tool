@@ -12,12 +12,11 @@ from src.config_manager import get_config_manager
 from src.db import get_db_manager, local_session, myfactory_session
 from src.logger import get_logger
 from src.mapper import get_mapper
-from src.models import (
-    ImportAudit,
+from src.models import ImportAudit
+from src.schemas.dto import (
     ImportConfigDTO,
     ImportResultDTO,
     ImportStatus,
-    get_table_name,
 )
 
 logger = get_logger(__name__)
@@ -70,7 +69,7 @@ class MyfactoryImporter:
     ):
         self.auto_fetch_mapping = auto_fetch_mapping
         self.batch_size = batch_size or get_config_manager().get().default_batch_size
-        self.table_name = table_name or get_table_name()
+        self.table_name = table_name
         self.mapper = get_mapper()
         self.db_manager = get_db_manager()
         self._target_columns = None

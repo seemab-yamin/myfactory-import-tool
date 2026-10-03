@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from src.config_manager import get_config_manager
 from src.logger import get_logger
+from src.models import TargetField
 from src.paths import BASE_DIR
 
 logger = get_logger(__name__)
@@ -351,10 +352,7 @@ class DatabaseManager:
     ) -> Optional[List[Dict[str, Any]]]:
         """Get cached columns from local database."""
         logger.info(f"🔍 _get_cached_columns called: table={table_name}")
-
         try:
-            from src.models import TargetField
-
             with self.local_session() as session:
                 logger.info("🔍 Querying TargetField table...")
                 columns = (
@@ -390,10 +388,7 @@ class DatabaseManager:
         logger.info(
             f"🔍 _cache_columns called: table={table_name}, columns={len(columns)}"
         )
-
         try:
-            from src.models import TargetField
-
             with self.local_session() as session:
                 logger.info(f"🔍 Deleting existing cache for {table_name}...")
                 deleted = (

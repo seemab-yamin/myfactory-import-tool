@@ -13,10 +13,10 @@ from src.logger import (
 from src.models import (
     ImportAudit,
     ImportSettings,
-    ImportStatus,
     Supplier,
     TargetField,
 )
+from src.schemas.dto import ImportStatus
 from src.paths import BASE_DIR
 from src.schema_scanner import (
     SchemaScanner,

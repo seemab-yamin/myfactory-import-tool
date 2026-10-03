@@ -11,7 +11,7 @@ from src.db import get_db_manager
 from src.importer import get_importer
 from src.logger import get_logger
 from src.mapper import get_mapper
-from src.models import ImportStatus
+from src.schemas.dto import ImportStatus
 from src.schema_scanner import get_scanner
 
 logger = get_logger(__name__)
