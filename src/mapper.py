@@ -2,6 +2,7 @@
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
+from sqlalchemy.orm.attributes import flag_modified
 
 import pandas as pd
 from rapidfuzz import fuzz
@@ -114,9 +115,11 @@ class FieldMapper:
     ):
 
         # ✅ Normalize List[dict] → dict keyed by target_field_name
-        mappings_dict = {
-            m["target_field_name"]: m for m in mappings if m.get("target_field_name")
-        }
+        mappings_dict = (
+            {m["target_field_name"]: m for m in mappings if m.get("target_field_name")}
+            if mappings
+            else {}
+        )
         with local_session() as session:
             # ✅ Use different variable names to avoid confusion
             # fetch supplier by name
@@ -158,16 +161,13 @@ class FieldMapper:
                                 and mapping.get("source_field") not in source_fields
                             ):
                                 schema_changed_flag = True
-                                mapping["source_field"] = (
-                                    None  # clear the source field if it's no longer present
-                                )
-                                mapping["is_changed"] = (
-                                    True  # mark the mapping as changed
-                                )
+                                mapping["source_field"] = None
+                                mapping["is_changed"] = True
                             else:
                                 mapping["is_changed"] = False
                             new_updated_mappings[target_field] = mapping
                         sup.mappings = new_updated_mappings
+                        flag_modified(sup, "mappings")
                         sup.schema_changed_flag = schema_changed_flag
 
                 # case 2b: update mappings, header_row_index, sheet_name, delimiter
@@ -179,11 +179,12 @@ class FieldMapper:
                     sup.sheet_name = sheet_name
                 if delimiter:
                     sup.delimiter = delimiter
-                logger.info(
-                    f"Updated mapping: name={supplier_name}, "
-                    f"source_fields={len(source_fields)}, "
-                    f"mappings={len(mappings_dict)}"
-                )
+            logger.info(
+                f"Updated/Added mapping: name={supplier_name}, "
+                f"source_fields={len(source_fields)}, "
+                f"mappings={len(sup.mappings)}, "
+                f"supplier_id={sup.id}"
+            )
 
             # ✅ Commit
             try:

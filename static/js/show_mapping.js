@@ -187,7 +187,6 @@ async function deleteSupplier(supplierId, supplierName) {
 // ============================================================
 // SOURCE FIELDS FROM PAGE DATA
 // ============================================================
-// TODO:
 async function updateSource() {
     const headerRowIndex = getHeaderRowIndex();
     const delimiter = getDelimiter();
@@ -206,16 +205,11 @@ async function updateSource() {
         delimiter: delimiter,
     };
 
-    // ============================================================
-    // Step 11: Send to backend
-    // ============================================================
     const url = `/api/suppliers/${encodeURIComponent(supplierName)}`;
-    console.log('[updateSource] Sending payload to backend:', payload, url);
 
     updateSourceBtn.disabled = true;
-    statusDiv.innerHTML = `<span class="text-info">⏳ Updating Source Fields for ${parsedColumns.length} mapping(s)...</span>`;
+    statusDiv.innerHTML = `< span class="text-info" > Updating source fields...</span >`;
 
-    // TODO: Update the try to match our feature needs
     try {
         const response = await fetch(url, {
             method: 'POST',
@@ -227,49 +221,44 @@ async function updateSource() {
 
 
         if (!response.ok) {
-            let errorMessage = `HTTP ${response.status}`;
-            let errorDetail = null;
-
-            try {
-                const errorData = await response.json();
-                console.error(`${TAG} [11] ❌ Backend error response:`, errorData);
-                errorDetail = errorData;
-                errorMessage = errorData.detail || errorData.message || JSON.stringify(errorData);
-            } catch (e) {
-                errorMessage = response.statusText || errorMessage;
-            }
-
-            throw { message: errorMessage, detail: errorDetail, status: response.status };
+            const errorData = await response.json().catch(() => ({}));
+            throw new Error(
+                errorData.detail ||
+                errorData.message ||
+                `HTTP ${response.status}`
+            );
         }
 
         const result = await response.json();
 
-        hasChanges = false;
-        updateSaveButton();
+        statusDiv.innerHTML =
+            `<span class="text-success"> Source fields updated successfully.</span>`;
 
-        statusDiv.innerHTML = `<span class="text-success">✅ ${mappingList.length} mappings saved successfully!</span>`;
-        showToast('Success', `Mappings saved for ${supplierName}`, 'success');
-        saveBtn.innerHTML = '<i class="bi bi-save"></i> Save Changes';
+        showToast(
+            'Success',
+            `Source fields updated for ${supplierName}`,
+            'success'
+        );
 
         setTimeout(() => {
-            const redirectUrl = result.supplier_id
-                ? `/show-mapping/${result.supplier_id}`
-                : window.location.href;
             if (result.supplier_id) {
-                window.location.href = redirectUrl;
+                window.location.href = `/show-mapping/${result.supplier_id}`;
             } else {
                 window.location.reload();
             }
-        }, 1500);
+        }, 1000);
 
     } catch (error) {
-        console.error(`${TAG} [11] ❌ Save failed:`, error);
+        statusDiv.innerHTML =
+            `< span class="text-danger" >❌ ${error.message}</span > `;
 
-        const errorMsg = error.detail ? JSON.stringify(error.detail) : error.message;
-        statusDiv.innerHTML = `<span class="text-danger">❌ ${errorMsg}</span>`;
-        showToast('Error', `Failed to save mappings: ${error.message}`, 'danger');
-        saveBtn.disabled = false;
-        saveBtn.innerHTML = '<i class="bi bi-save"></i> Save Changes';
+        showToast(
+            'Error',
+            `Failed to update source fields: ${error.message}`,
+            'danger'
+        );
+
+        updateSourceBtn.disabled = false;
     }
 }
 
