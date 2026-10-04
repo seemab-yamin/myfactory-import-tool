@@ -380,7 +380,7 @@ async def get_suppliers(supplier_id: int, active_only: bool = False):
 
 # accept optional flag argument
 @router.post("/api/suppliers/{supplier_name:str}")
-async def api_save_mappings(
+async def save_supplier(
     supplier_name: str,
     payload: SaveMappingsRequest,
 ):
@@ -391,7 +391,7 @@ async def api_save_mappings(
             status_code=400, detail="Database not configured. Run setup first."
         )
     mapper = get_mapper()
-    _, supplier_id = mapper.save_mappings(
+    supplier_id = mapper.save_mappings(
         supplier_name=supplier_name,
         source_fields=payload.source_fields,
         mappings=payload.mappings,
@@ -408,7 +408,7 @@ async def api_save_mappings(
 
 
 @router.post("/api/mappings-auto-suggest")
-async def api_auto_suggest(payload: dict = Body(...)):
+async def auto_suggest(payload: dict = Body(...)):
     """
     Suggest target→source field mappings by deterministic name matching.
 
@@ -492,7 +492,7 @@ async def api_auto_suggest(payload: dict = Body(...)):
 
 
 @router.delete("/api/suppliers/{supplier_id:int}")
-async def api_delete_supplier(supplier_id: int):
+async def delete_supplier(supplier_id: int):
     """Delete a supplier and all associated mappings."""
     if not ensure_configured():
         raise HTTPException(

@@ -5,6 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 
 import pandas as pd
 from rapidfuzz import fuzz
+
 from src.db import local_session
 from src.logger import get_logger
 from src.models import Supplier, TargetField
@@ -111,28 +112,21 @@ class FieldMapper:
         delimiter: str = ",",
         is_new_supplier: bool = False,
     ):
-        """
-        Save mappings for a supplier.
-
-        Args:
-            supplier_name: Name of the supplier (will be resolved to ID)
-            source_fields: List of source field names (from CSV)
-            mappings: List of dictionaries with keys:
-                - source_field: str
-                - target_field: str (field name)
-                - target_field_id: int
-                - is_mandatory: bool
-                - is_db_required: bool
-                - is_active: bool
-                - prepopulated_value: str or None
-        """
 
         # ✅ Normalize List[dict] → dict keyed by target_field_name
         mappings_dict = {
             m["target_field_name"]: m for m in mappings if m.get("target_field_name")
         }
         with local_session() as session:
+            # ✅ Use different variable names to avoid confusion
+            # fetch supplier by name
             if is_new_supplier:
+                sup = None
+            else:
+                sup = self._get_supplier(supplier_name, session)
+
+            if not sup:
+                # case 1: if supplier does not exist, create a new one
                 sup = Supplier(
                     name=supplier_name,
                     source_fields=source_fields,
@@ -143,44 +137,48 @@ class FieldMapper:
                 )
                 session.add(sup)
                 session.flush()
-                supplier_id = sup.id
                 logger.info(
                     f"Created mapping: name={supplier_name}, "
                     f"source_fields={len(source_fields)}, "
                     f"mappings={len(mappings_dict)}"
                 )
             else:
-                # ✅ Use different variable names to avoid confusion
-                existing = self._get_supplier_id(supplier_name)
+                # case 2: if supplier exists, update the existing one
+                # case 2a: if source_fields is provided, update it; otherwise, keep existing
+                if source_fields:
+                    sup.source_fields = source_fields
+                    # if no mappings given, means the source fields are updated so we need to flag the schema_changed_flag to True
+                    if not mappings_dict:
+                        schema_changed_flag = False
+                        # we iterate over the existing mappings to flag if any of the source fields are no longer present in the new source_fields list
+                        new_updated_mappings = {}
+                        for target_field, mapping in sup.mappings.items():
+                            if (
+                                mapping.get("source_field")
+                                and mapping.get("source_field") not in source_fields
+                            ):
+                                schema_changed_flag = True
+                                mapping["source_field"] = (
+                                    None  # clear the source field if it's no longer present
+                                )
+                                mapping["is_changed"] = (
+                                    True  # mark the mapping as changed
+                                )
+                            else:
+                                mapping["is_changed"] = False
+                            new_updated_mappings[target_field] = mapping
+                        sup.mappings = new_updated_mappings
+                        sup.schema_changed_flag = schema_changed_flag
 
-                # ✅ Check if supplier exists
-                if existing is None or existing[0] is None:
-                    raise ValueError(f"Supplier '{supplier_name}' not found")
-
-                # ✅ Unpack safely
-                (
-                    existing_id,
-                    _,
-                    _,
-                    _,
-                    _,
-                    _,
-                ) = existing
-
-                # ✅ Get the supplier object for update
-                sup = session.query(Supplier).filter(Supplier.id == existing_id).first()
-
-                if sup is None:
-                    raise ValueError(f"Supplier with ID {existing_id} not found")
-
-                # ✅ Update fields
-                sup.source_fields = source_fields
-                sup.mappings = mappings_dict
-                sup.updated_at = datetime.now(timezone.utc)
-                sup.header_row_index = header_row_index
-                sup.sheet_name = sheet_name
-                sup.delimiter = delimiter
-                supplier_id = sup.id  # Ensure supplier_id is set for return
+                # case 2b: update mappings, header_row_index, sheet_name, delimiter
+                if mappings_dict:
+                    sup.mappings = mappings_dict
+                if header_row_index:
+                    sup.header_row_index = header_row_index
+                if sheet_name:
+                    sup.sheet_name = sheet_name
+                if delimiter:
+                    sup.delimiter = delimiter
                 logger.info(
                     f"Updated mapping: name={supplier_name}, "
                     f"source_fields={len(source_fields)}, "
@@ -190,15 +188,13 @@ class FieldMapper:
             # ✅ Commit
             try:
                 session.commit()
-                # ✅ Refresh to verify
-                session.refresh(sup)
             except Exception as e:
                 session.rollback()
                 raise e
             # ✅ Clear caches
             self._cache.clear()
             self._supplier_cache.clear()
-            return sup, supplier_id
+            return sup.id
 
     def delete_supplier(self, supplier_id: int) -> bool:
         """
@@ -677,59 +673,11 @@ class FieldMapper:
 
     # ========== Helper Methods ==========
 
-    def _get_supplier_id(self, supplier_name: str):
+    def _get_supplier(self, supplier_name: str, session):
         """Get supplier by name."""
 
-        with local_session() as session:
-            sup = session.query(Supplier).filter(Supplier.name == supplier_name).first()
-
-            if sup:
-                return (
-                    sup.id,
-                    sup.name,
-                    sup.updated_at,
-                    sup.created_at,
-                    sup.mappings,
-                    sup.source_fields,
-                )
-            else:
-                return None
-
-    def _get_or_create_supplier(
-        self, supplier_name: str, source_fields: List[str] = None
-    ) -> Tuple[Supplier, int]:
-        """Get supplier ID, or create a new supplier if it doesn't exist."""
-        (
-            supplier_id,
-            name,
-            updated_at,
-            created_at,
-            mappings,
-            source_fields,
-        ) = self._get_supplier_id(supplier_name)
-        if supplier_id is not None:
-            return (
-                supplier_id,
-                name,
-                updated_at,
-                created_at,
-                mappings,
-                source_fields,
-            )
-
-        with local_session() as session:
-            sup = Supplier(name=supplier_name, source_fields=source_fields)
-            session.add(sup)
-            session.commit()
-            self._supplier_cache[supplier_name] = sup.id
-            return (
-                sup.id,
-                sup.name,
-                sup.updated_at,
-                sup.created_at,
-                sup.mappings,
-                sup.source_fields,
-            )
+        sup = session.query(Supplier).filter(Supplier.name == supplier_name).first()
+        return sup if sup else None
 
 
 # ========== Singleton Accessor ==========
