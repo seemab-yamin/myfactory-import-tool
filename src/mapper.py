@@ -260,7 +260,7 @@ class FieldMapper:
                 session.query(Supplier).filter(Supplier.id == supplier_id).first()
             )
             if supplier is None:
-                raise ValueError(f"Supplier with ID {supplier_id} not found")
+                return None
 
             return {
                 "id": supplier.id,
