@@ -1,5 +1,5 @@
-import datetime
 import tempfile
+from datetime import datetime
 from pathlib import Path
 
 import aiofiles
@@ -31,7 +31,7 @@ async def validate_file(file: UploadFile):
     # ✅ Validate file size
     file_size = 0
     try:
-        content = file.read()
+        content = await file.read()
         file_size = len(content)
         await file.seek(0)  # Reset file pointer for later use
     except Exception as e:
@@ -55,7 +55,7 @@ async def save_file(file: UploadFile, file_path: Path):
     try:
         file_size = 0
         async with aiofiles.open(file_path, "wb") as f:
-            while chunk := await validate_file(file).read(1024 * 1024):
+            while chunk := await file.read(1024 * 1024):
                 file_size += len(chunk)
                 if file_size > MAX_FILE_SIZE:
                     raise HTTPException(
@@ -69,7 +69,7 @@ async def save_file(file: UploadFile, file_path: Path):
 
 async def save_file_temp(file: UploadFile):
     # Determine file type
-    filename = await file.filename.lower()
+    filename = file.filename.lower()
     suffix = Path(filename).suffix
 
     await validate_file(file=file)  # Validate file type and size
