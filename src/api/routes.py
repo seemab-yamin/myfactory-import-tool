@@ -189,7 +189,7 @@ async def upload_file(
                 config={
                     "file_path": str(file_path),
                     "supplier_id": payload.supplier_id,
-                    "dry_run": True,
+                    "dry_run": payload.dry_run,
                     "batch_size": payload.batch_size,
                 },
                 header_row_index=payload.header_row_index,
@@ -234,7 +234,7 @@ async def upload_file(
         header_row_index=payload.header_row_index,
         sheet_name=payload.sheet_name,
         delimiter=payload.delimiter,
-        dry_run=True,
+        dry_run=payload.dry_run,
     )
 
     return {
