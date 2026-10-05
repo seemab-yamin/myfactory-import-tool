@@ -64,12 +64,12 @@ class MyfactoryImporter:
     def __init__(
         self,
         batch_size: int = 1000,
-        table_name: str = None,
         auto_fetch_mapping: bool = True,
     ):
+        self.config = get_config_manager().get()
+        self.default_products_table = self.config.default_products_table
         self.auto_fetch_mapping = auto_fetch_mapping
-        self.batch_size = batch_size or get_config_manager().get().default_batch_size
-        self.table_name = table_name
+        self.batch_size = batch_size or self.config.default_batch_size
         self.mapper = get_mapper()
         self.db_manager = get_db_manager()
         self._target_columns = None
@@ -77,7 +77,9 @@ class MyfactoryImporter:
     def get_target_columns(self) -> List[str]:
         """Get target columns from the database."""
         if self._target_columns is None:
-            columns = self.db_manager.get_table_columns(self.table_name, use_cache=True)
+            columns = self.db_manager.get_table_columns(
+                self.default_products_table, use_cache=True
+            )
             self._target_columns = [col["name"] for col in columns]
         return self._target_columns
 
@@ -584,7 +586,9 @@ class MyfactoryImporter:
 _importer: Optional[MyfactoryImporter] = None
 
 
-def get_importer(batch_size: int = 1000, table_name: str = None) -> MyfactoryImporter:
+def get_importer(
+    batch_size: int = 1000, table_name: str = "tdProducts"
+) -> MyfactoryImporter:
     """Get or create the importer instance."""
     global _importer
     if _importer is None:
