@@ -1,44 +1,47 @@
 // ============================================================
 // HOME PAGE – IMPORT UI
 // ============================================================
+// global variables
+let supplierCfg = null;
+const supplierSelect = document.getElementById('supplierName');
 
 // ============================================================
 // HELPERS
 // ============================================================
 
 function getSelectedSupplierConfig() {
-  const sel = document.getElementById('supplierInput');
-  if (!sel) return null;
+  if (!supplierSelect) return null;
 
-  const opt = sel.options[sel.selectedIndex];
+  const opt = supplierSelect.options[supplierSelect.selectedIndex];
   if (!opt || !opt.value) return null;
 
-  return {
+  supplierCfg = {
     supplierId: opt.dataset.supplierId || opt.value,
     supplierName: opt.dataset.supplierName || opt.textContent.trim(),
     headerRowIndex: opt.dataset.headerRowIndex ?? '1',
     sheetName: opt.dataset.sheetName ?? '',
     delimiter: opt.dataset.delimiter ?? ',',
   };
+  return supplierCfg;
 }
 
 function renderSupplierConfigHint() {
   const hint = document.getElementById('supplierConfigHint');
   if (!hint) return;
 
-  const cfg = getSelectedSupplierConfig();
-  if (!cfg) {
+  getSelectedSupplierConfig();
+  if (!supplierCfg) {
     hint.innerHTML = '';
     hint.style.display = 'none';
     return;
   }
 
   const bits = [];
-  bits.push(`<span class="badge bg-secondary">Header row: ${cfg.headerRowIndex}</span>`);
-  if (cfg.sheetName) {
-    bits.push(`<span class="badge bg-info text-dark">Sheet: ${cfg.sheetName}</span>`);
+  bits.push(`<span class="badge bg-secondary">Header row: ${supplierCfg.headerRowIndex}</span>`);
+  if (supplierCfg.sheetName) {
+    bits.push(`<span class="badge bg-info text-dark">Sheet: ${supplierCfg.sheetName}</span>`);
   }
-  bits.push(`<span class="badge bg-light text-dark border">Delimiter: <code>${cfg.delimiter}</code></span>`);
+  bits.push(`<span class="badge bg-light text-dark border">Delimiter: <code>${supplierCfg.delimiter}</code></span>`);
 
   hint.innerHTML = bits.join(' ');
   hint.style.display = 'block';
@@ -48,7 +51,6 @@ function renderSupplierConfigHint() {
 // DOMContentLoaded
 // ============================================================
 document.addEventListener('DOMContentLoaded', function () {
-  const supplierSelect = document.getElementById('supplierInput');
   const fileInput = document.getElementById('fileInput');
   const importBtn = document.getElementById('importBtn');
 
@@ -110,7 +112,7 @@ document.addEventListener('DOMContentLoaded', function () {
     fileStatus.textContent = '⏳ Parsing...';
     fileStatus.className = 'badge bg-warning text-dark ms-1';
 
-    const supplierCfg = getSelectedSupplierConfig();
+    getSelectedSupplierConfig();
     if (!supplierCfg) {
       fileStatus.textContent = '⚠️ Select supplier first';
       fileStatus.className = 'badge bg-warning text-dark ms-1';
@@ -144,7 +146,15 @@ document.addEventListener('DOMContentLoaded', function () {
       fileStatus.textContent = '✅ Parsed';
       fileStatus.className = 'badge bg-success ms-1';
 
-      renderPreview(data);
+      renderPreview(data.preview || []);
+
+      const stats = document.getElementById('previewStats');
+      if (stats) {
+        stats.textContent = `${data.row_count || 0} rows, ${data.column_count || 0} columns`;
+      }
+
+      previewContainer.style.display = 'block';
+
       updateImportButton();
 
     } catch (e) {
@@ -153,30 +163,6 @@ document.addEventListener('DOMContentLoaded', function () {
       fileStatus.className = 'badge bg-danger ms-1';
       importBtn.disabled = true;
     }
-  }
-
-  function renderPreview(data) {
-    const previewContainer = document.getElementById('previewContainer');
-    const head = document.getElementById('previewHead');
-    const body = document.getElementById('previewBody');
-    const stats = document.getElementById('previewStats');
-
-    const columns = data.columns || [];
-    const preview = data.preview || [];
-
-    if (!columns.length || !preview.length) {
-      previewContainer.style.display = 'none';
-      return;
-    }
-
-    head.innerHTML = `<tr>${columns.map(col => `<th>${col}</th>`).join('')}</tr>`;
-
-    body.innerHTML = preview.slice(0, 5).map(row => `
-            <tr>${columns.map(col => `<td>${row[col] !== null && row[col] !== undefined ? row[col] : ''}</td>`).join('')}</tr>
-        `).join('');
-
-    stats.textContent = `${data.row_count || 0} rows, ${data.column_count || 0} columns`;
-    previewContainer.style.display = 'block';
   }
 
   function formatFileSize(bytes) {
@@ -222,7 +208,6 @@ document.addEventListener('DOMContentLoaded', function () {
 // ============================================================
 async function uploadFile() {
   const fileInput = document.getElementById('fileInput');
-  const supplierSelect = document.getElementById('supplierInput');
   const dryRun = document.getElementById('dryRunInput').checked;
   const batchSize = document.getElementById('batchSizeInput').value;
   const resultDiv = document.getElementById('result');
@@ -244,6 +229,9 @@ async function uploadFile() {
   formData.append('supplier_id', supplierId);
   formData.append('dry_run', dryRun);
   formData.append('batch_size', batchSize);
+  formData.append('header_row_index', supplierCfg.headerRowIndex);
+  formData.append('sheet_name', supplierCfg.sheetName);
+  formData.append('delimiter', supplierCfg.delimiter);
 
   importBtn.disabled = true;
   importBtn.innerHTML = '<span class="spinner-border spinner-border-sm" role="status"></span> Uploading...';
@@ -270,7 +258,7 @@ async function uploadFile() {
     resultDiv.innerHTML = `<div class="error">❌ Network Error: ${e.message}</div>`;
   } finally {
     importBtn.disabled = false;
-    importBtn.innerHTML = '<i class="bi bi-upload"></i> Upload & Import';
+    importBtn.innerHTML = '<i class="bi bi-upload"></i> Start Import';
   }
 }
 

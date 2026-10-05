@@ -13,8 +13,8 @@
   <div class="form-group">
     <span class="text-muted" style="color: #6c757d;">Disabled suppliers are not available for import because their mappings are not configured completely. Please configure the mappings before using them.</span>
       <br>
-    <label for="supplierInput">Supplier:</label>
-    <select id="supplierInput" class="form-select" style="width:auto; display:inline-block;">
+    <label for="supplierName">Supplier:</label>
+    <select id="supplierName" class="form-select" style="width:auto; display:inline-block;">
       <option value="">— select —</option>
       {% for s in suppliers %}
         <option value="{{ s[0] }}"
@@ -59,7 +59,7 @@
 
   {# ── Action buttons ── #}
   <button id="importBtn" onclick="uploadFile()" class="btn btn-primary" disabled>
-    <i class="bi bi-upload"></i> Upload & Import
+    <i class="bi bi-upload"></i> Start Import
   </button>
   <button onclick="clearResult()" class="btn btn-secondary" style="margin-left:10px;">Clear</button>
 
@@ -84,6 +84,7 @@
 {% endblock %}
 
 {% block scripts %}
+  <script src="{{ url_for('static', path='js/mapping_utils.js') }}"></script>
   <script src="{{ url_for('static', path='js/main.js') }}"></script>
   <script src="{{ url_for('static', path='js/index.js') }}"></script>
 {% endblock %}

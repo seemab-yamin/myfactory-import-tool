@@ -117,12 +117,6 @@ pre {
 }
 
 /* ===== New Supplier Input ===== */
-#newSupplierInput {
-    margin-top: 6px;
-    width: 250px !important;
-    display: none;
-}
-
 .table-danger {
     background-color: #f8d7da !important;
     border-left: 4px solid #dc3545;

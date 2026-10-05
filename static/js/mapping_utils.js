@@ -21,7 +21,7 @@ const noFileMessage = document.getElementById('noFileMessage');
 const mappingArea = document.getElementById('mappingArea');
 const autoMapBtn = document.getElementById('autoMapBtn');
 const sheetStatus = document.getElementById('sheetStatus');
-const sampleFileInput = document.getElementById('sampleFile');
+const fileInputInput = document.getElementById('fileInput');
 const supplierNameInput = document.getElementById('supplierName');
 const autoMapStatus = document.getElementById('autoMapStatus');
 const fileTypeHint = document.getElementById('fileTypeHint');
@@ -237,10 +237,10 @@ function updateStepStates() {
     const name = supplierNameInput.value.trim();
     step1Complete = name.length > 0 && !supplierExists;
 
-    sampleFileInput.disabled = !step1Complete;
+    fileInputInput.disabled = !step1Complete;
 
-    const hasFile = sampleFileInput.files.length > 0;
-    const isExcel = hasFile && isExcelFile(sampleFileInput.files[0]);
+    const hasFile = fileInputInput.files.length > 0;
+    const isExcel = hasFile && isExcelFile(fileInputInput.files[0]);
     parseFileBtn.disabled = !step1Complete || !hasFile || (isExcel && !selectedSheet);
 
     if (fetchSheetsBtn) {
@@ -306,7 +306,7 @@ function updateStepIndicators() {
 // FILE CHANGE HANDLER
 // ============================================================
 async function handleFileChange() {
-    const fileInput = sampleFileInput;
+    const fileInput = fileInputInput;
     const file = fileInput.files[0];
 
     resetSheetState();
@@ -494,7 +494,7 @@ async function parseRender() {
     const delim = getDelimiter();
     const sheetName = selectedSheet || null;
 
-    const file = sampleFileInput.files[0];
+    const file = fileInputInput.files[0];
 
     // ✅ Validation (UI concern) — bail early before touching network
     if (!file) {
@@ -545,12 +545,12 @@ function renderPreview(preview) {
 // FETCH SHEETS (Excel only)
 // ============================================================
 async function fetchSheets() {
-    if (!sampleFileInput.files.length) {
+    if (!fileInputInput.files.length) {
         if (sheetStatus) sheetStatus.innerHTML = '<span class="text-warning">⚠️ Select an Excel file first</span>';
         return;
     }
 
-    const file = sampleFileInput.files[0];
+    const file = fileInputInput.files[0];
     if (!isExcelFile(file)) {
         if (sheetStatus) sheetStatus.innerHTML = '<span class="text-warning">⚠️ Sheet selection is only for Excel files</span>';
         return;
@@ -898,22 +898,3 @@ window.detectChanges = detectChanges;
 window.highlightErrorRows = highlightErrorRows;
 window.scrollToFirstError = scrollToFirstError;
 window.renderValidationErrors = renderValidationErrors;
-
-
-
-// ============================================================
-// INIT
-// ============================================================
-document.addEventListener('DOMContentLoaded', async function () {
-    if (sampleFileInput) {
-        sampleFileInput.addEventListener('change', handleFileChange);
-    }
-    if (sheetSelect) {
-        sheetSelect.addEventListener('change', function () {
-            selectedSheet = this.value || null;
-            updateStepStates();
-        });
-    }
-
-    updateStepStates();
-});

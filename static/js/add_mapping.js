@@ -434,7 +434,7 @@ function markDirty() {
 // ============================================================
 function resetForm() {
     supplierNameInput.value = '';
-    sampleFileInput.value = '';
+    fileInputInput.value = '';
     document.getElementById('parseStatus').innerHTML = '';
     document.getElementById('filePreview').style.display = 'none';
     mappingArea.style.display = 'none';
@@ -484,12 +484,13 @@ document.addEventListener('DOMContentLoaded', async function () {
     if (supplierNameInput) {
         supplierNameInput.addEventListener('input', checkSupplierName);
     }
+    if (fileInputInput) {
+        fileInputInput.addEventListener('change', handleFileChange);
+    }
     if (sheetSelect) {
         sheetSelect.addEventListener('change', function () {
             selectedSheet = this.value || null;
             updateStepStates();
         });
     }
-
-    updateStepStates();
 });

@@ -265,7 +265,15 @@ async function updateSource() {
 // ============================================================
 // INIT
 // ============================================================
-
-document.addEventListener('DOMContentLoaded', function () {
+document.addEventListener('DOMContentLoaded', async function () {
     renderMappingUI();
+    if (fileInputInput) {
+        fileInputInput.addEventListener('change', handleFileChange);
+    }
+    if (sheetSelect) {
+        sheetSelect.addEventListener('change', function () {
+            selectedSheet = this.value || null;
+            updateStepStates();
+        });
+    }
 });
