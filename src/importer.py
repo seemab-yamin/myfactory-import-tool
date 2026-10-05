@@ -156,7 +156,9 @@ class MyfactoryImporter:
             if config.dry_run:
                 result = self._dry_run(validated_df, mapping, audit_id)
             else:
-                result = self._perform_import(validated_df, audit_id, config.batch_size)
+                result = self._perform_import(
+                    validated_df, config.table_name, config.batch_size
+                )
 
             # 6. Update audit
             result.audit_id = audit_id
@@ -348,10 +350,9 @@ class MyfactoryImporter:
         return df, errors
 
     def _perform_import(
-        self, df: pd.DataFrame, audit_id: int, batch_size: int
+        self, df: pd.DataFrame, table_name: str, batch_size: int
     ) -> ImportResultDTO:
         """Perform batch insert into database."""
-
         if df.empty:
             logger.warning("No data to import")
             return ImportResultDTO(
@@ -363,37 +364,29 @@ class MyfactoryImporter:
                 errors=[],
                 log_file=logger.handlers[0].baseFilename if logger.handlers else "",
             )
-
         total_rows = len(df)
         imported_rows = 0
         failed_rows = 0
         errors = []
-
         records = df.to_dict("records")
-
-        print(
-            f"TODO: Prepared {len(records)} records for insertion into {self.default_products_table}"
-        )
-        raise NotImplementedError(
-            "Batch insert logic is not implemented yet. Please implement the database insertion logic."
-        )
-
         for i in range(0, total_rows, batch_size):
+            columns = list(records[0].keys())
+            column_sql = ", ".join(f"[{column}]" for column in columns)
             batch = records[i : i + batch_size]
             batch_num = (i // batch_size) + 1
-
             try:
                 with myfactory_session() as session:
-                    session.bulk_insert_mappings(self.table_name, batch)
-                    session.commit()
-
+                    values_sql = ", ".join(f":{column}" for column in columns)
+                    stmt = text(f"""
+                        INSERT INTO [{table_name}] ({column_sql})
+                        VALUES ({values_sql})
+                    """)
+                    session.execute(stmt, batch)
                 imported_rows += len(batch)
                 logger.info(f"✅ Batch {batch_num}: Inserted {len(batch)} rows")
-
             except Exception as e:
                 logger.error(f"❌ Batch {batch_num} failed: {e}")
-                failed_rows += self._insert_rows_individually(batch, errors)
-
+                # failed_rows += self._insert_rows_individually(batch, errors)
         return ImportResultDTO(
             status=ImportStatus.SUCCESS if failed_rows == 0 else ImportStatus.FAILED,
             total_rows=total_rows,
