@@ -8,7 +8,9 @@ from fastapi import (
     UploadFile,
 )
 
-from src.api.routes import UPLOAD_DIR
+# Upload directory
+UPLOAD_DIR = Path("uploads")
+UPLOAD_DIR.mkdir(exist_ok=True)
 
 ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
 MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB

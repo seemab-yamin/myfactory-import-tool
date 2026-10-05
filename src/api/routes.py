@@ -26,7 +26,7 @@ from src.mapper import get_mapper
 from src.models import ImportAudit, SchemaChangeLog, Supplier
 from src.schemas.requests import ParseSample, SaveMappingsRequest, UploadRequest
 from src.services.schema_drift_service import SchemaDriftService
-from utils import get_file_path, save_file, save_file_temp, validate_file
+from src.utils import get_file_path, save_file, save_file_temp, validate_file
 
 logger = get_logger(__name__)
 
@@ -37,12 +37,6 @@ TEMPLATE_DIR = Path(__file__).parent.parent.parent / "templates"
 templates = (
     Jinja2Templates(directory=str(TEMPLATE_DIR)) if TEMPLATE_DIR.exists() else None
 )
-# Constants
-
-# Upload directory
-UPLOAD_DIR = Path("uploads")
-UPLOAD_DIR.mkdir(exist_ok=True)
-
 
 # ========== HTML Pages ==========
 
@@ -180,7 +174,7 @@ async def upload_file(
     # validate file type and size
     await validate_file(file=payload.file)  # Validate file type and size
 
-    file_path = await get_file_path(file=payload.file, upload_dir=UPLOAD_DIR)
+    file_path = await get_file_path(file=payload.file)
 
     await save_file(file=payload.file, file_path=file_path)
 
