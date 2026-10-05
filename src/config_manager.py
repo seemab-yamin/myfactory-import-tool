@@ -5,7 +5,6 @@ import json
 import os
 from dataclasses import dataclass
 from enum import Enum
-from pathlib import Path
 from typing import Any, Dict, Optional, Tuple
 
 import keyring
@@ -19,8 +18,8 @@ logger = setup_logger(__name__)
 # Constants
 KEYRING_SERVICE = "myfactory_import"
 CONFIG_DIR = BASE_DIR / "config"
-CONFIG_FILE = CONFIG_DIR / "config.json"
-ENV_FILE = CONFIG_DIR / ".env"
+CONFIG_PATH = CONFIG_DIR / "config.json"
+ENV_PATH = CONFIG_DIR / ".env"
 
 
 class AuthMethod(Enum):
@@ -49,7 +48,6 @@ class AppSettings:
 
     # Import Settings
     default_products_table: str = "tdProducts"
-    default_batch_size: int = 1000
 
     # Logging
     log_level: str = "INFO"
@@ -84,7 +82,6 @@ class AppSettings:
             "db_connection_timeout": self.db_connection_timeout,
             "auth_method": self.auth_method,
             "default_products_table": self.default_products_table,
-            "default_batch_size": self.default_batch_size,
             "log_level": self.log_level,
             "log_max_bytes": self.log_max_bytes,
             "log_backup_count": self.log_backup_count,
@@ -145,9 +142,9 @@ class AppSettings:
 class ConfigManager:
     """Configuration manager with interactive setup and secure storage."""
 
-    def __init__(self, config_path: Optional[Path] = None):
-        self.config_path = config_path or CONFIG_FILE
-        self.env_path = ENV_FILE
+    def __init__(self):
+        self.config_path = CONFIG_PATH
+        self.env_path = ENV_PATH
         self._settings: Optional[AppSettings] = None
         self._is_configured = False
         self._load()
@@ -182,34 +179,18 @@ class ConfigManager:
                             setattr(self._settings, key, value)
                 logger.info(f"Loaded config from {self.config_path}")
             except Exception as e:
-                logger.warning(f"Could not load config.json: {e}")
+                logger.warning(f"Could not load config: {e}")
 
     def _load_env(self):
         """Load credentials from .env file."""
         if self.env_path.exists():
             try:
                 load_dotenv(self.env_path)
-                self._settings.db_server = os.getenv(
-                    "DB_SERVER", self._settings.db_server
-                )
-                self._settings.db_database = os.getenv(
-                    "DB_DATABASE", self._settings.db_database
-                )
                 self._settings.db_username = os.getenv(
                     "DB_USERNAME", self._settings.db_username
                 )
                 self._settings.db_password = os.getenv(
                     "DB_PASSWORD", self._settings.db_password
-                )
-                self._settings.db_driver = os.getenv(
-                    "DB_DRIVER", self._settings.db_driver
-                )
-                self._settings.db_trusted_connection = (
-                    os.getenv("DB_TRUSTED_CONNECTION", "True").lower() == "true"
-                )
-                self._settings.db_port = int(os.getenv("DB_PORT", "1433"))
-                self._settings.db_connection_timeout = int(
-                    os.getenv("DB_CONNECTION_TIMEOUT", "30")
                 )
                 logger.info(f"Loaded settings from {self.env_path}")
             except Exception as e:
@@ -256,7 +237,10 @@ class ConfigManager:
         print("🔐 MyFactory Import Tool - Interactive Setup")
         print("=" * 70)
         print("\nThis will configure your database connection settings.")
-        print("Credentials will be stored securely in Windows Credential Manager.\n")
+        if os.name == "nt":
+            print(
+                "Credentials will be stored securely in Windows Credential Manager.\n"
+            )
 
         try:
             # Step 1: Database Server
@@ -309,14 +293,6 @@ class ConfigManager:
             )
             table = input(f"Default product table [{default_products_table}]: ").strip()
             self._settings.default_products_table = table or default_products_table
-
-            default_batch = str(self._settings.default_batch_size)
-            batch = input(f"Batch size (rows per batch) [{default_batch}]: ").strip()
-            if batch:
-                try:
-                    self._settings.default_batch_size = int(batch)
-                except ValueError:
-                    print(f"⚠️ Invalid batch size, using {default_batch}")
 
             # Step 4: Test Connection
             print("\n--- Testing Connection ---")
@@ -409,19 +385,8 @@ class ConfigManager:
         try:
             self.env_path.parent.mkdir(parents=True, exist_ok=True)
             with open(self.env_path, "w", encoding="utf-8") as f:
-                f.write(f"DB_SERVER={self._settings.db_server}\n")
-                f.write(f"DB_DATABASE={self._settings.db_database}\n")
-                f.write(f"DB_DRIVER={self._settings.db_driver}\n")
-                f.write(f"DB_PORT={self._settings.db_port}\n")
-                f.write(
-                    f"DB_CONNECTION_TIMEOUT={self._settings.db_connection_timeout}\n"
-                )
-                f.write(
-                    f"DB_TRUSTED_CONNECTION={str(self._settings.db_trusted_connection)}\n"
-                )
-                if not self._settings.db_trusted_connection:
-                    f.write(f"DB_USERNAME={self._settings.db_username}\n")
-                    f.write(f"DB_PASSWORD={self._settings.db_password}\n")
+                f.write(f"DB_USERNAME={self._settings.db_username}\n")
+                f.write(f"DB_PASSWORD={self._settings.db_password}\n")
             logger.info(f"Credentials saved to {self.env_path}")
         except Exception as e:
             logger.warning(f"Could not save .env: {e}")
@@ -468,14 +433,13 @@ class ConfigManager:
         s = self._settings
         lines = [
             "=" * 50,
-            f"📋 Configuration Summary",
+            "📋 Configuration Summary",
             "=" * 50,
             f"Server:        {s.db_server}",
             f"Database:      {s.db_database}",
             f"Driver:        {s.db_driver}",
             f"Auth Method:   {s.auth_method.upper()}",
             f"Table:         {s.default_products_table}",
-            f"Batch Size:    {s.default_batch_size}",
             f"Log Level:     {s.log_level}",
             f"Data Directory: {s.app_data_dir}",
             "=" * 50,
