@@ -122,7 +122,6 @@ document.addEventListener('DOMContentLoaded', function () {
     try {
       const formData = new FormData();
       formData.append('file', file);
-      formData.append('supplier_name', supplierCfg.supplierName);
       formData.append('header_row_index', String(supplierCfg.headerRowIndex));
 
       if (supplierCfg.sheetName) {
