@@ -1,11 +1,9 @@
 """API routes for MyFactory Import Tool."""
 
-import tempfile
 from datetime import datetime
 from pathlib import Path
 from typing import Annotated, Optional
 
-import aiofiles
 import pandas as pd
 from fastapi import (
     APIRouter,
@@ -28,6 +26,7 @@ from src.mapper import get_mapper
 from src.models import ImportAudit, SchemaChangeLog, Supplier
 from src.schemas.requests import ParseSample, SaveMappingsRequest, UploadRequest
 from src.services.schema_drift_service import SchemaDriftService
+from utils import get_file_path, save_file, save_file_temp, validate_file
 
 logger = get_logger(__name__)
 
@@ -44,8 +43,6 @@ templates = (
 UPLOAD_DIR = Path("uploads")
 UPLOAD_DIR.mkdir(exist_ok=True)
 
-ALLOWED_EXTENSIONS = {".csv", ".xlsx", ".xls"}
-MAX_FILE_SIZE = 100 * 1024 * 1024  # 100 MB
 
 # ========== HTML Pages ==========
 
@@ -180,66 +177,12 @@ async def health():
 async def upload_file(
     background_tasks: BackgroundTasks, payload: Annotated[UploadRequest, Form()]
 ):
-    # ============================================================
-    # 1. INPUT VALIDATION LAYER
-    # ============================================================
+    # validate file type and size
+    await validate_file(file=payload.file)  # Validate file type and size
 
-    # ✅ 1.1 Ensure configured
-    if not ensure_configured():
-        raise HTTPException(status_code=400, detail="Database not configured.")
+    file_path = await get_file_path(file=payload.file, upload_dir=UPLOAD_DIR)
 
-    # ✅ 1.2 Validate file type (.csv, .xlsx, .xls)
-    if not payload.file.filename:
-        raise HTTPException(status_code=400, detail="No filename provided.")
-
-    file_ext = Path(payload.file.filename).suffix.lower()
-    if file_ext not in ALLOWED_EXTENSIONS:
-        raise HTTPException(
-            status_code=400,
-            detail=f"Unsupported file type. Allowed: {', '.join(ALLOWED_EXTENSIONS)}",
-        )
-
-    # ✅ 1.3 Validate file size (optional but recommended)
-    file_size = 0
-    try:
-        content = await payload.file.read()
-        file_size = len(content)
-        await payload.file.seek(0)  # Reset file pointer for later use
-    except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Failed to read file: {e}")
-
-    if file_size > MAX_FILE_SIZE:
-        raise HTTPException(
-            status_code=400,
-            detail=f"File too large. Max size: {MAX_FILE_SIZE // (1024*1024)} MB",
-        )
-    if file_size == 0:
-        raise HTTPException(status_code=400, detail="File is empty.")
-
-    # ============================================================
-    # 2. FILE HANDLING LAYER
-    # ============================================================
-
-    # ✅ 2.1 Save uploaded file to UPLOAD_DIR with timestamp
-    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
-    file_size = 0
-    safe_filename = f"{timestamp}_{Path(payload.file.filename).name}"
-    file_path = UPLOAD_DIR / safe_filename
-
-    try:
-        async with aiofiles.open(file_path, "wb") as f:
-            while chunk := await payload.file.read(1024 * 1024):
-                file_size += len(chunk)
-
-                if file_size > MAX_FILE_SIZE:
-                    raise HTTPException(
-                        status_code=400,
-                        detail=f"File too large. Max size: {MAX_FILE_SIZE // (1024 * 1024)} MB",
-                    )
-
-                await f.write(chunk)
-    except Exception as e:
-        raise HTTPException(status_code=500, detail=f"Failed to save file: {e}")
+    await save_file(file=payload.file, file_path=file_path)
 
     # ============================================================
     # 3. DRY-RUN MODE (Synchronous)
@@ -589,19 +532,7 @@ async def parse_sheets(file: UploadFile = File(...)):
     """
 
     try:
-        content = await file.read()
-
-        # Determine file type
-        filename = file.filename.lower()
-        suffix = Path(filename).suffix
-
-        if suffix not in [".xlsx", ".xls"]:
-            raise HTTPException(status_code=400, detail="Unsupported file type")
-
-        # write to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-            tmp_file.write(content)
-            tmp_file_path = tmp_file.name
+        tmp_file_path = save_file_temp(file)
 
         importer = get_importer()
         available_sheets = importer.list_excel_sheets(Path(tmp_file_path))
@@ -624,18 +555,7 @@ async def parse_sample_file(payload: Annotated[ParseSample, Form()]):
     """
 
     try:
-        content = await payload.file.read()
-        # Determine file type
-        filename = payload.file.filename.lower()
-        suffix = Path(filename).suffix
-
-        if suffix not in [".csv", ".xlsx", ".xls"]:
-            raise HTTPException(status_code=400, detail="Unsupported file type")
-
-        # write to a temporary file
-        with tempfile.NamedTemporaryFile(delete=False, suffix=suffix) as tmp_file:
-            tmp_file.write(content)
-            tmp_file_path = tmp_file.name
+        tmp_file_path = save_file_temp(payload.file)
 
         importer = get_importer()
         df, available_sheets = importer._read_file(
