@@ -46,13 +46,19 @@ function renderMappingUI() {
             const hasSource = item.source_field || '';
             const isMandatory = item.is_mandatory || false;
             const isDbRequired = item.is_db_required || false;
+            const mappingStatus = item.mapping_status || 'mapped';
             const prepopulatedValue = item.prepopulated_value || '';
+
+            const statusHtml = mappingStatus === 'removed' ? `<span class="badge bg-warning text-dark ms-2">
+                        Source removed
+                    </span>`: '';
 
             // Store current state for change detection
             currentMappings[targetName] = {
                 source_field: hasSource,
                 is_mandatory: isMandatory,
                 is_db_required: isDbRequired,
+                mapping_status: mappingStatus,
                 prepopulated_value: prepopulatedValue,
                 target_id: targetId,
                 data_type: dataType,
@@ -63,6 +69,7 @@ function renderMappingUI() {
                 source_field: hasSource,
                 is_mandatory: isMandatory,
                 is_db_required: isDbRequired,
+                mapping_status: mappingStatus,
                 prepopulated_value: prepopulatedValue,
                 target_id: targetId,
                 data_type: dataType,
@@ -74,6 +81,7 @@ function renderMappingUI() {
                 <td>
                     <strong>${targetName}</strong>
                     ${isDbRequired ? '<span class="text-danger">*</span>' : ''}
+                    ${statusHtml}
                     <br><span class="text-muted small">${dataType}</span>
                     <br><span class="text-muted small">ID: ${targetId}</span>
                 </td>
@@ -86,6 +94,15 @@ function renderMappingUI() {
                             </option>
                         `).join('')}
                     </select>
+                    ${mappingStatus === 'removed'
+                    ? `
+                        <div class="text-warning small mt-1">
+                            Previously mapped to:
+                            <strong>${item.previous_source_field || 'unknown'}</strong>
+                        </div>
+                      `
+                    : ''
+                }
                 </td>
                 <td class="text-center">
                     <input type="checkbox" class="form-check-input mandatory-check" 
