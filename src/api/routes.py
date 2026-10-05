@@ -182,16 +182,19 @@ async def upload_file(
     if payload.dry_run:
         logger.info(f"Starting dry-run import for supplier_id={payload.supplier_id}")
         try:
-            importer = get_importer()
+            importer = get_importer(
+                table_name=get_config_manager().get().default_products_table,
+            )
             result = importer.import_file(
-                {
+                config={
                     "file_path": str(file_path),
                     "supplier_id": payload.supplier_id,
                     "dry_run": True,
                     "batch_size": payload.batch_size,
-                    "header_row_index": payload.header_row_index,
-                    "sheet_name": payload.sheet_name,
-                }
+                },
+                header_row_index=payload.header_row_index,
+                sheet_name=payload.sheet_name,
+                delimiter=payload.delimiter,
             )
 
             return {
@@ -230,6 +233,8 @@ async def upload_file(
         batch_size=payload.batch_size,
         header_row_index=payload.header_row_index,
         sheet_name=payload.sheet_name,
+        delimiter=payload.delimiter,
+        dry_run=True,
     )
 
     return {
@@ -275,17 +280,6 @@ async def get_mappings():
     mapper = get_mapper()
     suppliers = mapper.get_all_suppliers()
     return {"suppliers": suppliers, "total": len(suppliers)}
-
-
-@router.get("/api/mapping_name/exists/{supplier_name:str}")
-async def mapping_name_exists(supplier_name: str):
-    if not ensure_configured():
-        raise HTTPException(status_code=400, detail="Database not configured.")
-
-    mapper = get_mapper()
-    exists = mapper.mapping_name_exists(supplier_name)
-
-    return {"supplier_name": supplier_name, "exists": exists}
 
 
 @router.get("/api/suppliers/{supplier_id:int}")

@@ -25,28 +25,27 @@ logger = get_logger(__name__)
 def run_import(
     import_id: str,
     file_path,
-    supplier_id=None,
-    supplier=None,
-    dry_run=False,
-    batch_size=1000,
-    header_row_index=None,
-    sheet_name=None,
+    supplier_id,
+    dry_run,
+    batch_size,
+    header_row_index,
+    sheet_name,
+    delimiter,
 ):
     importer = get_importer()
     payload = {
+        "supplier_id": supplier_id,
         "file_path": str(file_path),
         "import_id": import_id,
         "dry_run": dry_run,
         "batch_size": batch_size,
-        "header_row_index": header_row_index,
-        "sheet_name": sheet_name,
     }
-    if supplier_id is not None:
-        payload["supplier_id"] = supplier_id
-    else:
-        payload["supplier_name"] = supplier
-
-    return importer.import_file(payload)
+    return importer.import_file(
+        payload,
+        delimiter=delimiter,
+        header_row_index=header_row_index,
+        sheet_name=sheet_name,
+    )
 
 
 class MyfactoryImporter:
@@ -86,54 +85,30 @@ class MyfactoryImporter:
     def import_file(
         self,
         config: Union[ImportConfigDTO, Dict[str, Any]],
-        header_row_index: Optional[int] = None,
+        header_row_index: int = 1,
         sheet_name: Optional[str] = None,
         delimiter: Optional[str] = None,
     ) -> ImportResultDTO:
         # Convert dict to DTO if needed
         if isinstance(config, dict):
             config = ImportConfigDTO(**config)
-
+        supplier_id = config.supplier_id
         logger.info("=" * 60)
         logger.info(f"🚀 Starting import from: {config.file_path}")
-        logger.info(f"   Supplier: id={config.supplier_id} name={config.supplier_name}")
         logger.info(f"   Table: {config.table_name}")
         logger.info(f"   Dry run: {config.dry_run}")
         logger.info(f"   Batch size: {config.batch_size}")
         logger.info("=" * 60)
 
         # ── Resolve supplier (DB source of truth) ──
-        supplier = None
-        if config.supplier_id is not None:
-            supplier = self.mapper.get_supplier_by_id(config.supplier_id)
-            if supplier:
-                config.supplier_name = supplier.get("name") or config.supplier_name
-            else:
-                raise ValueError(
-                    f"Supplier id={config.supplier_id} not found. "
-                    "Please create it via Add Supplier first."
-                )
-        elif config.supplier_name:
-            supplier = self.mapper.get_supplier(config.supplier_name)
-            if not supplier:
-                raise ValueError(
-                    f"Supplier '{config.supplier_name}' not found. "
-                    "Please create it via Add Supplier first."
-                )
+        supplier = self.mapper.get_supplier_by_id(supplier_id)
+        if supplier:
+            config.supplier_name = supplier.get("name")
         else:
-            raise ValueError("Neither supplier_id nor supplier_name was provided.")
-
-        # ── Normalize supplier shape (dict vs ORM) ──
-        if isinstance(supplier, dict):
-            supplier_id = supplier.get("id")
-            db_header_row = supplier.get("header_row_index") or 1
-            db_sheet_name = supplier.get("sheet_name")
-            db_delimiter = supplier.get("delimiter") or ","
-        else:
-            supplier_id = supplier.id
-            db_header_row = supplier.header_row_index or 1
-            db_sheet_name = supplier.sheet_name
-            db_delimiter = supplier.delimiter or ","
+            raise ValueError(
+                f"Supplier id={supplier_id} not found. "
+                "Please create it via Add Supplier first."
+            )
 
         # Create audit record
         audit = ImportAudit.create_from_import(
@@ -149,25 +124,12 @@ class MyfactoryImporter:
             audit_id = audit.id
 
         try:
-            # ── Resolve final config: explicit arg → DTO → DB → default ──
-            resolved_header_row = (
-                header_row_index if header_row_index is not None else db_header_row
-            )
-            resolved_sheet_name = (
-                sheet_name if sheet_name is not None else db_sheet_name
-            )
-            resolved_delimiter = delimiter if delimiter else db_delimiter
-
-            logger.info(f"   header_row_index={resolved_header_row} ")
-            logger.info(f"   sheet_name={resolved_sheet_name} ")
-            logger.info(f"   delimiter='{resolved_delimiter}' ")
-
             # 1. Read file
-            df, available_sheets = self._read_file(
+            df, _ = self._read_file(
                 file_path=config.file_path,
-                delimiter=resolved_delimiter,
-                header_row_index=resolved_header_row,
-                sheet_name=resolved_sheet_name,
+                delimiter=delimiter,
+                header_row_index=header_row_index,
+                sheet_name=sheet_name,
             )
 
             # 2. Get mapping
@@ -180,7 +142,7 @@ class MyfactoryImporter:
 
             if not mapping:
                 raise ValueError(
-                    f"No mapping found for supplier '{config.supplier_name}'. "
+                    f"No mapping found for supplier '{supplier_id}'. "
                     "Please configure mappings first."
                 )
 
@@ -409,6 +371,13 @@ class MyfactoryImporter:
 
         records = df.to_dict("records")
 
+        print(
+            f"TODO: Prepared {len(records)} records for insertion into {self.default_products_table}"
+        )
+        raise NotImplementedError(
+            "Batch insert logic is not implemented yet. Please implement the database insertion logic."
+        )
+
         for i in range(0, total_rows, batch_size):
             batch = records[i : i + batch_size]
             batch_num = (i // batch_size) + 1
@@ -586,27 +555,9 @@ class MyfactoryImporter:
 _importer: Optional[MyfactoryImporter] = None
 
 
-def get_importer(
-    batch_size: int = 1000, table_name: str = "tdProducts"
-) -> MyfactoryImporter:
+def get_importer(table_name: str = "tdProducts") -> MyfactoryImporter:
     """Get or create the importer instance."""
     global _importer
     if _importer is None:
-        _importer = MyfactoryImporter(batch_size, table_name)
+        _importer = MyfactoryImporter(table_name)
     return _importer
-
-
-# ========== Example Usage ==========
-if __name__ == "__main__":
-    importer = get_importer()
-
-    result = importer.import_file(
-        {
-            "file_path": "sample.csv",
-            "supplier_name": "supplier_a",
-            "dry_run": True,
-            "batch_size": 100,
-        }
-    )
-
-    print(f"Import result: {result.status}")
