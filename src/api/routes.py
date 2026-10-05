@@ -171,9 +171,6 @@ async def health():
 async def upload_file(
     background_tasks: BackgroundTasks, payload: Annotated[UploadRequest, Form()]
 ):
-    # validate file type and size
-    await validate_file(file=payload.file)  # Validate file type and size
-
     file_path = await get_file_path(file=payload.file)
 
     await save_file(file=payload.file, file_path=file_path)
@@ -526,7 +523,7 @@ async def parse_sheets(file: UploadFile = File(...)):
     """
 
     try:
-        tmp_file_path = save_file_temp(file)
+        tmp_file_path = await save_file_temp(file)
 
         importer = get_importer()
         available_sheets = importer.list_excel_sheets(Path(tmp_file_path))
@@ -549,7 +546,7 @@ async def parse_sample_file(payload: Annotated[ParseSample, Form()]):
     """
 
     try:
-        tmp_file_path = save_file_temp(payload.file)
+        tmp_file_path = await save_file_temp(payload.file)
 
         importer = get_importer()
         df, available_sheets = importer._read_file(
