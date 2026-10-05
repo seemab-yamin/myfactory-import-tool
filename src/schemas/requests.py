@@ -17,7 +17,7 @@ class SaveMappingsRequest(StrictRequestModel):
     mappings: Optional[List[dict]] = None
     is_new_supplier: bool = Body(False)
     delimiter: Optional[str] = None
-    header_row_index: Optional[int] = None
+    header_row_index: int = Form(1)
     sheet_name: Optional[str] = None
 
 
@@ -26,5 +26,6 @@ class UploadRequest(StrictRequestModel):
     supplier_id: int = Form(...)
     dry_run: bool = Form(False)
     batch_size: int = Form(1000)
+    delimiter: Optional[str] = None
     header_row_index: int = Form(1)
-    sheet_name: str = Form(None)
+    sheet_name: Optional[str] = None
