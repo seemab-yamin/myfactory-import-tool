@@ -2,10 +2,10 @@
 
 from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional, Tuple
-from sqlalchemy.orm.attributes import flag_modified
 
 import pandas as pd
 from rapidfuzz import fuzz
+from sqlalchemy.orm.attributes import flag_modified
 
 from src.db import local_session
 from src.logger import get_logger
@@ -161,10 +161,13 @@ class FieldMapper:
                                 and mapping.get("source_field") not in source_fields
                             ):
                                 schema_changed_flag = True
+                                mapping["previous_source_field"] = mapping[
+                                    "source_field"
+                                ]
                                 mapping["source_field"] = None
-                                mapping["is_changed"] = True
+                                mapping["mapping_status"] = "removed"
                             else:
-                                mapping["is_changed"] = False
+                                mapping["mapping_status"] = "mapped"
                             new_updated_mappings[target_field] = mapping
                         sup.mappings = new_updated_mappings
                         flag_modified(sup, "mappings")
@@ -173,6 +176,7 @@ class FieldMapper:
                 # case 2b: update mappings, header_row_index, sheet_name, delimiter
                 if mappings_dict:
                     sup.mappings = mappings_dict
+                    sup.schema_changed_flag = False
                 if header_row_index:
                     sup.header_row_index = header_row_index
                 if sheet_name:
