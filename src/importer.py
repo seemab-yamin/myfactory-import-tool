@@ -147,7 +147,7 @@ class MyfactoryImporter:
             if config.dry_run:
                 result = self._dry_run(validated_df, mapping, audit_id)
             else:
-                result = self._perform_import(validated_df, config.batch_size)
+                result = self._perform_import(validated_df, config.batch_size, audit_id)
 
             # 6. Update audit
             result.audit_id = audit_id
@@ -334,7 +334,9 @@ class MyfactoryImporter:
 
         return df, errors
 
-    def _perform_import(self, df: pd.DataFrame, batch_size: int) -> ImportResultDTO:
+    def _perform_import(
+        self, df: pd.DataFrame, batch_size: int, audit_id: str
+    ) -> ImportResultDTO:
         """Perform batch insert into database."""
         if df.empty:
             logger.warning("No data to import")
@@ -372,6 +374,11 @@ class MyfactoryImporter:
                     """)
                     session.execute(stmt, batch_with_ids)
                 imported_rows += len(batch_with_ids)
+                self._update_audit_progress(
+                    audit_id=audit_id,
+                    processed=imported_rows,
+                    total=total_rows,
+                )
                 logger.info(
                     f"✅ Batch {batch_num}: Inserted {len(batch_with_ids)} rows"
                 )
@@ -473,6 +480,29 @@ class MyfactoryImporter:
                 )
                 logger.debug(f"Audit {audit_id} updated")
 
+    def _update_audit_progress(
+        self,
+        audit_id: int,
+        processed: int,
+        total: int,
+    ):
+        with local_session() as session:
+            audit = (
+                session.query(ImportAudit).filter(ImportAudit.id == audit_id).first()
+            )
+            if audit:
+                audit.rows_processed = processed
+                audit.status = ImportStatus.RUNNING.value
+
+                if audit.details is None:
+                    audit.details = {}
+
+                audit.details["progress"] = {
+                    "processed": processed,
+                    "total": total,
+                    "percentage": round((processed / total) * 100, 2),
+                }
+
     def _log_summary(self, result: ImportResultDTO, dry_run: bool):
         """Log import summary."""
         logger.info("=" * 60)
@@ -502,21 +532,35 @@ class MyfactoryImporter:
     # ========== Utility Methods ==========
 
     def get_import_history(
-        self, supplier_name: Optional[str] = None, limit: int = 50
-    ) -> List[Dict[str, Any]]:
-        """Get import history from audit log."""
+        self,
+        supplier_name: Optional[str] = None,
+        limit: int = 50,
+        offset: int = 0,
+    ) -> tuple[List[Dict[str, Any]], int]:
+        """
+        Get import history from audit log with pagination.
+
+        Returns:
+            (records, total_count) — `total_count` is the full count matching the
+            filter, ignoring limit/offset, so callers can compute total pages.
+        """
         with local_session() as session:
             query = session.query(ImportAudit)
             if supplier_name:
                 query = query.filter(ImportAudit.supplier_name == supplier_name)
-            query = query.order_by(ImportAudit.started_at.desc()).limit(limit)
 
-            return [audit.to_dict() for audit in query.all()]
+            # ✅ Count BEFORE applying pagination
+            total_count = query.count()
 
-    def get_last_import(self, supplier_name: str) -> Optional[Dict[str, Any]]:
-        """Get the last import for a supplier."""
-        history = self.get_import_history(supplier_name, limit=1)
-        return history[0] if history else None
+            # Apply ordering + pagination
+            rows = (
+                query.order_by(ImportAudit.started_at.desc())
+                .offset(offset)
+                .limit(limit)
+                .all()
+            )
+
+            return [audit.to_dict() for audit in rows], total_count
 
     def clear_cache(self):
         """Clear target columns cache."""

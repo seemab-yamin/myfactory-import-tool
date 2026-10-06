@@ -248,24 +248,77 @@ async def upload_file(
     }
 
 
+# ============================================================
+# Import History & Audit
+# ============================================================
+
+
 @router.get("/history")
-async def get_history(supplier: Optional[str] = None, limit: int = 50):
-    """Get import history."""
+async def history_page(
+    request: Request,
+    supplier: Optional[str] = None,
+    page: int = 1,
+    per_page: int = 20,
+):
+    """Render import history page with pagination."""
+    if not templates:
+        return HTMLResponse("Templates not found.")
+
+    # ---- Sanitize inputs ----
+    page = max(page, 1)
+    per_page = max(1, min(per_page, 200))  # clamp: 1..200
+    offset = (page - 1) * per_page
 
     importer = get_importer()
-    history = importer.get_import_history(supplier, limit)
-    return {"total": len(history), "supplier": supplier or "all", "history": history}
+    history, total_count = importer.get_import_history(
+        supplier_name=supplier,
+        limit=per_page,
+        offset=offset,
+    )
 
+    # ---- Enrich each record for display ----
+    for entry in history:
+        entry["display_file"] = entry.get("file_name") or (
+            Path(entry["file_path"]).name if entry.get("file_path") else "—"
+        )
 
-@router.get("/history/{audit_id}")
-async def get_audit_detail(audit_id: int):
-    """Get detailed audit record."""
+        entry["duration_sec"] = None
+        if entry.get("started_at") and entry.get("completed_at"):
+            try:
+                s = datetime.fromisoformat(entry["started_at"])
+                c = datetime.fromisoformat(entry["completed_at"])
+                entry["duration_sec"] = round((c - s).total_seconds(), 1)
+            except (ValueError, TypeError):
+                pass
 
-    with local_session() as session:
-        audit = session.query(ImportAudit).filter(ImportAudit.id == audit_id).first()
-        if not audit:
-            raise HTTPException(status_code=404, detail="Audit record not found")
-        return audit.to_dict()
+        entry["import_id_short"] = (
+            entry["import_id"][:8] if entry.get("import_id") else None
+        )
+
+    # ---- Pagination metadata for template ----
+    total_pages = max(1, (total_count + per_page - 1) // per_page)
+    has_prev = page > 1
+    has_next = page < total_pages
+
+    return templates.TemplateResponse(
+        request,
+        "history.html",
+        {
+            "request": request,
+            "history": history,
+            "supplier": supplier or "all",
+            "supplier_raw": supplier or "",  # for filter form value
+            # Pagination
+            "page": page,
+            "per_page": per_page,
+            "total_count": total_count,
+            "total_pages": total_pages,
+            "has_prev": has_prev,
+            "has_next": has_next,
+            "page_start": offset + 1 if total_count else 0,
+            "page_end": min(offset + per_page, total_count),
+        },
+    )
 
 
 @router.get("/api/suppliers")
@@ -424,21 +477,17 @@ async def delete_supplier(supplier_id: int):
     }
 
 
-@router.get("/api/imports/{import_id}")
-async def get_import_by_import_id(import_id: str):
-    """Look up an import audit by its frontend-generated import_id."""
-
-    from src.db import local_session
-
+@router.get("/imports/{import_id}", response_class=HTMLResponse)
+async def import_detail_page(request: Request, import_id: str):
     with local_session() as session:
-        audit = (
-            session.query(ImportAudit)
-            .filter(ImportAudit.import_id == import_id)
-            .first()
-        )
+        audit = session.query(ImportAudit).filter_by(import_id=import_id).first()
         if not audit:
-            raise HTTPException(status_code=404, detail=f"Import {import_id} not found")
-        return audit.to_dict()
+            raise HTTPException(404, "Import not found")
+        return templates.TemplateResponse(
+            request,
+            "import_detail.html",
+            {"request": request, "audit": audit.to_dict()},
+        )
 
 
 @router.post("/setup")
