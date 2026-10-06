@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse, HTMLResponse
 from fastapi.templating import Jinja2Templates
 from starlette.requests import Request
 
-from src.config_manager import ensure_configured, get_config_manager
+from src.config_manager import get_config_manager
 from src.db import get_db_manager, local_session
 from src.importer import get_importer, run_import
 from src.logger import get_logger
@@ -45,7 +45,7 @@ templates = (
 async def index(request: Request):
     """Home page."""
     if templates:
-        suppliers = get_mapper().get_all_suppliers() if ensure_configured() else []
+        suppliers = get_mapper().get_all_suppliers()
         return templates.TemplateResponse(
             request, "index.html", {"request": request, "suppliers": suppliers}
         )
@@ -251,8 +251,6 @@ async def upload_file(
 @router.get("/history")
 async def get_history(supplier: Optional[str] = None, limit: int = 50):
     """Get import history."""
-    if not ensure_configured():
-        raise HTTPException(status_code=400, detail="Database not configured.")
 
     importer = get_importer()
     history = importer.get_import_history(supplier, limit)
@@ -262,8 +260,7 @@ async def get_history(supplier: Optional[str] = None, limit: int = 50):
 @router.get("/history/{audit_id}")
 async def get_audit_detail(audit_id: int):
     """Get detailed audit record."""
-    if not ensure_configured():
-        raise HTTPException(status_code=400, detail="Database not configured.")
+
     with local_session() as session:
         audit = session.query(ImportAudit).filter(ImportAudit.id == audit_id).first()
         if not audit:
@@ -275,8 +272,6 @@ async def get_audit_detail(audit_id: int):
 async def get_mappings():
     """Return list of all suppliers."""
 
-    if not ensure_configured():
-        raise HTTPException(status_code=400, detail="Database not configured.")
     mapper = get_mapper()
     suppliers = mapper.get_all_suppliers()
     return {"suppliers": suppliers, "total": len(suppliers)}
@@ -285,11 +280,6 @@ async def get_mappings():
 @router.get("/api/suppliers/{supplier_id:int}")
 async def get_suppliers(supplier_id: int, active_only: bool = False):
     """Return full mapping for a specific supplier by ID."""
-
-    if not ensure_configured():
-        raise HTTPException(
-            status_code=400, detail="Database not configured. Run setup first."
-        )
 
     mapper = get_mapper()
     mappings = mapper.get_mappings(supplier_id, active_only)
@@ -314,10 +304,6 @@ async def save_supplier(
 ):
     """Save a mappings for a supplier."""
 
-    if not ensure_configured():
-        raise HTTPException(
-            status_code=400, detail="Database not configured. Run setup first."
-        )
     mapper = get_mapper()
     supplier_id = mapper.save_mappings(
         supplier_name=supplier_name,
@@ -422,10 +408,6 @@ async def auto_suggest(payload: dict = Body(...)):
 @router.delete("/api/suppliers/{supplier_id:int}")
 async def delete_supplier(supplier_id: int):
     """Delete a supplier and all associated mappings."""
-    if not ensure_configured():
-        raise HTTPException(
-            status_code=400, detail="Database not configured. Run setup first."
-        )
 
     mapper = get_mapper()
     deleted = mapper.delete_supplier(supplier_id)
@@ -445,8 +427,6 @@ async def delete_supplier(supplier_id: int):
 @router.get("/api/imports/{import_id}")
 async def get_import_by_import_id(import_id: str):
     """Look up an import audit by its frontend-generated import_id."""
-    if not ensure_configured():
-        raise HTTPException(status_code=400, detail="Database not configured.")
 
     from src.db import local_session
 
@@ -487,9 +467,6 @@ async def api_schema(
     sort_by: str = "id",
 ):
     """Return JSON schema for the default table."""
-
-    if not ensure_configured():
-        raise HTTPException(status_code=400, detail="Database not configured.")
 
     config = get_config_manager()
     default_products_table = config.get().default_products_table
@@ -585,8 +562,6 @@ async def parse_sample_file(payload: Annotated[ParseSample, Form()]):
 @router.post("/api/schema/check")
 async def api_check_schema_drift(apply_sync: bool = True):
     """Manually trigger schema drift detection. Has side effects — POST only."""
-    if not ensure_configured():
-        raise HTTPException(status_code=400, detail="Database not configured.")
 
     try:
         with local_session() as session:
@@ -608,8 +583,6 @@ async def api_schema_change_log(limit: int = 20):
     Query params:
         limit (int): Max rows to return (default 20).
     """
-    if not ensure_configured():
-        raise HTTPException(status_code=400, detail="Database not configured.")
 
     with local_session() as session:
         logs = (
