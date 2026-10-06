@@ -229,9 +229,6 @@ class MyfactoryImporter:
             if df.empty:
                 logger.warning("File is empty")
 
-            logger.info(f"✅ Read {len(df)} rows, {len(df.columns)} columns")
-            logger.info(f"   Columns: {list(df.columns)}")
-
             return df, available_sheets
 
         except Exception as e:
@@ -435,7 +432,6 @@ class MyfactoryImporter:
 
         logger.info(f"\nData preview ({len(df)} rows, {len(df.columns)} columns):")
         if not df.empty:
-            logger.info(f"Columns: {list(df.columns)}")
             preview_rows = min(10, len(df))
             logger.info(f"First {preview_rows} rows:")
             logger.info("\n" + df.head(preview_rows).to_string())
