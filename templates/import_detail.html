@@ -1,0 +1,232 @@
+{% extends 'base.html' %}
+{% block title %}
+  Import Detail — {{ audit.import_id or audit.id }}
+{% endblock %}
+
+{% block content %}
+<div class="container-fluid">
+
+  {# ===== HEADER ===== #}
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div>
+      <h1 class="mb-1">
+        🔍 Import Detail
+        {% if audit.dry_run %}
+          <span class="badge bg-warning text-dark align-middle ms-2" style="font-size:0.55em;">
+            <i class="bi bi-eye"></i> DRY RUN
+          </span>
+        {% endif %}
+      </h1>
+      <div class="text-muted small">
+        {% if audit.import_id %}
+        Import ID: <code>{{ audit.import_id }}</code>
+        {% endif %}
+      </div>
+    </div>
+    <div class="d-flex gap-2">
+      <a href="/history" class="btn btn-sm btn-outline-secondary">
+        <i class="bi bi-arrow-left"></i> Back to History
+      </a>
+      <button onclick="window.location.reload();" class="btn btn-sm btn-primary">
+        <i class="bi bi-arrow-clockwise"></i> Refresh
+      </button>
+    </div>
+  </div>
+
+  {# ===== STATUS BANNER ===== #}
+  {% set status = (audit.status or '')|lower %}
+  {% if status == 'success' %}
+    <div class="alert alert-success d-flex align-items-center">
+      <i class="bi bi-check-circle-fill fs-4 me-2"></i>
+      <div><strong>Import completed successfully.</strong></div>
+    </div>
+  {% elif status == 'failed' %}
+    <div class="alert alert-danger">
+      <div class="d-flex align-items-center">
+        <i class="bi bi-x-circle-fill fs-4 me-2"></i>
+        <div><strong>Import failed.</strong></div>
+      </div>
+      {% if audit.error_message %}
+        <hr>
+        <pre class="mb-0 small" style="white-space:pre-wrap; word-break:break-word;">{{ audit.error_message }}</pre>
+      {% endif %}
+    </div>
+  {% elif status == 'running' %}
+    <div class="alert alert-info d-flex align-items-center">
+      <span class="spinner-border spinner-border-sm me-2"></span>
+      <div><strong>Import is currently running…</strong></div>
+    </div>
+  {% elif status == 'pending' %}
+    <div class="alert alert-secondary d-flex align-items-center">
+      <i class="bi bi-hourglass-split fs-4 me-2"></i>
+      <div><strong>Import is pending.</strong></div>
+    </div>
+  {% elif status == 'dry_run' %}
+    <div class="alert alert-warning d-flex align-items-center">
+      <i class="bi bi-eye fs-4 me-2"></i>
+      <div><strong>Dry run — no data was written to the database.</strong></div>
+    </div>
+  {% else %}
+    <div class="alert alert-light d-flex align-items-center">
+      <i class="bi bi-question-circle fs-4 me-2"></i>
+      <div><strong>Status:</strong> {{ audit.status or 'UNKNOWN' }}</div>
+    </div>
+  {% endif %}
+
+  {# ===== SUMMARY CARDS ===== #}
+  <div class="row g-3 mb-4">
+    <div class="col-md-3 col-sm-6">
+      <div class="card h-100 border-primary">
+        <div class="card-body">
+          <div class="text-muted small">Rows Processed</div>
+          <div class="fs-3 fw-bold">{{ audit.rows_processed or 0 }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+      <div class="card h-100 border-success">
+        <div class="card-body">
+          <div class="text-muted small">Succeeded</div>
+          <div class="fs-3 fw-bold text-success">{{ audit.rows_succeeded or 0 }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+      <div class="card h-100 border-danger">
+        <div class="card-body">
+          <div class="text-muted small">Failed</div>
+          <div class="fs-3 fw-bold text-danger">{{ audit.rows_failed or 0 }}</div>
+        </div>
+      </div>
+    </div>
+    <div class="col-md-3 col-sm-6">
+      <div class="card h-100 border-warning">
+        <div class="card-body">
+          <div class="text-muted small">Skipped</div>
+          <div class="fs-3 fw-bold text-warning">{{ audit.rows_skipped or 0 }}</div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  {# ===== PROGRESS BAR ===== #}
+  {% set total = (audit.rows_processed or 0) %}
+  {% if total > 0 %}
+    <div class="mb-4">
+      <div class="d-flex justify-content-between small text-muted mb-1">
+        <span>Import Progress</span>
+        <span>{{ audit.rows_succeeded or 0 }} / {{ total }} succeeded</span>
+      </div>
+      <div class="progress" style="height: 24px;">
+        {% set ok_pct = ((audit.rows_succeeded or 0) / total * 100) | round(1) %}
+        {% set fail_pct = ((audit.rows_failed or 0) / total * 100) | round(1) %}
+        {% set skip_pct = ((audit.rows_skipped or 0) / total * 100) | round(1) %}
+        {% if ok_pct > 0 %}
+          <div class="progress-bar bg-success" role="progressbar"
+               style="width: {{ ok_pct }}%;"
+               title="Succeeded: {{ audit.rows_succeeded or 0 }} ({{ ok_pct }}%)">
+            {{ ok_pct }}%
+          </div>
+        {% endif %}
+        {% if fail_pct > 0 %}
+          <div class="progress-bar bg-danger" role="progressbar"
+               style="width: {{ fail_pct }}%;"
+               title="Failed: {{ audit.rows_failed or 0 }} ({{ fail_pct }}%)">
+            {{ fail_pct }}%
+          </div>
+        {% endif %}
+        {% if skip_pct > 0 %}
+          <div class="progress-bar bg-warning text-dark" role="progressbar"
+               style="width: {{ skip_pct }}%;"
+               title="Skipped: {{ audit.rows_skipped or 0 }} ({{ skip_pct }}%)">
+            {{ skip_pct }}%
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  {% endif %}
+
+  {# ===== DETAILS TABLE ===== #}
+  <div class="card mb-4">
+    <div class="card-header bg-light">
+      <strong><i class="bi bi-info-circle"></i> Import Metadata</strong>
+    </div>
+    <div class="card-body p-0">
+      <table class="table table-sm table-striped mb-0">
+        <tbody>
+          <tr>
+            <th style="width: 220px;">Audit ID</th>
+            <td>#{{ audit.id }}</td>
+          </tr>
+          {% if audit.import_id %}
+          <tr>
+            <th>Import ID (UUID)</th>
+            <td>
+              <code>{{ audit.import_id }}</code>
+              <button class="btn btn-sm btn-outline-secondary ms-2"
+                      onclick="navigator.clipboard.writeText('{{ audit.import_id }}')"
+                      title="Copy to clipboard">
+                <i class="bi bi-clipboard"></i>
+              </button>
+            </td>
+          </tr>
+          {% endif %}
+          <tr>
+            <th>Supplier</th>
+            <td><strong>{{ audit.supplier_name or '—' }}</strong></td>
+          </tr>
+          <tr>
+            <th>Target Table</th>
+            <td><code>{{ audit.table_name or '—' }}</code></td>
+          </tr>
+          <tr>
+            <th>File Name</th>
+            <td>{{ audit.file_name or '—' }}</td>
+          </tr>
+          <tr>
+            <th>Dry Run</th>
+            <td>
+              {% if audit.dry_run %}
+                <span class="badge bg-warning text-dark">YES</span>
+              {% else %}
+                <span class="badge bg-secondary">NO</span>
+              {% endif %}
+            </td>
+          </tr>
+          <tr>
+            <th>Started At</th>
+            <td>{{ audit.started_at[:19] | replace('T', ' ') if audit.started_at else '—' }}</td>
+          </tr>
+          <tr>
+            <th>Completed At</th>
+            <td>{{ audit.completed_at[:19] | replace('T', ' ') if audit.completed_at else '—' }}</td>
+          </tr>
+          <tr>
+            <th>Duration</th>
+            <td>
+              {% if audit.started_at and audit.completed_at %}
+                {% set s = audit.started_at %}
+                {% set c = audit.completed_at %}
+                <span id="durationCell">—</span>
+                <script>
+                  (function() {
+                    try {
+                      const s = new Date("{{ s }}");
+                      const c = new Date("{{ c }}");
+                      const sec = ((c - s) / 1000).toFixed(1);
+                      document.getElementById('durationCell').textContent = sec + ' s';
+                    } catch (e) {}
+                  })();
+                </script>
+              {% else %}
+                <span class="text-muted">—</span>
+              {% endif %}
+            </td>
+          </tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+{% endblock %}
