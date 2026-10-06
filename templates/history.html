@@ -1,0 +1,239 @@
+{% extends 'base.html' %}
+{% block title %}
+  History - MyFactory Import Tool
+{% endblock %}
+
+{% block content %}
+  <h1>📚 Import History</h1>
+  <p>Review previous imports and their execution status.</p>
+
+  <div class="d-flex justify-content-between align-items-center mb-3">
+    <div class="text-muted">
+      Supplier: <strong>{{ supplier }}</strong> &nbsp;|&nbsp;
+      Showing
+      {% if total_count %}
+        {{ page_start }}–{{ page_end }} of {{ total_count }} record{{ 's' if total_count != 1 else '' }}
+      {% else %}
+        0 records
+      {% endif %}
+    </div>
+    <button onclick="window.location.reload();" class="btn btn-sm btn-primary">
+      <i class="bi bi-arrow-clockwise"></i> Refresh
+    </button>
+  </div>
+
+  <div id="historyStatus" class="mt-3"></div>
+
+  <div class="table-responsive mt-3">
+    <table class="table table-bordered table-striped align-middle">
+      <thead class="table-light">
+        <tr>
+          <th>#</th>
+          <th>Import ID</th>
+          <th>File</th>
+          <th>Supplier</th>
+          <th>Status</th>
+          <th>Processed</th>
+          <th>Success</th>
+          <th>Failed</th>
+          <th>Started</th>
+          <th>Completed</th>
+          <th>Duration</th>
+        </tr>
+      </thead>
+
+      <tbody id="historyTableBody">
+        {% if history and history|length > 0 %}
+          {% for entry in history %}
+            <tr>
+              <td>{{ (page - 1) * per_page + loop.index }}</td>
+
+              {# Import ID — truncated, full in tooltip, links to HTML detail page #}
+              <td>
+                {% if entry.import_id %}
+                  <a href="/imports/{{ entry.import_id }}"
+                     class="text-decoration-none"
+                     title="{{ entry.import_id }}">
+                    <code>{{ entry.import_id_short }}</code>
+                    {% if entry.dry_run %}
+                      <i class="bi bi-eye text-muted ms-1" title="Dry run"></i>
+                    {% endif %}
+                  </a>
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+
+              <td>
+                <span title="{{ entry.file_path or '' }}">
+                  {{ entry.display_file }}
+                </span>
+              </td>
+
+              <td>{{ entry.supplier_name }}</td>
+
+              <td>
+                {% set status = (entry.status or '')|lower %}
+                {% if status == 'success' %}
+                  <span class="badge bg-success">SUCCESS</span>
+                {% elif status == 'failed' %}
+                  <span class="badge bg-danger"
+                        title="{{ entry.error_message or '' }}">FAILED</span>
+                {% elif status == 'running' %}
+                  <span class="badge bg-info text-dark">RUNNING</span>
+                {% elif status == 'pending' %}
+                  <span class="badge bg-secondary">PENDING</span>
+                {% elif status == 'dry_run' %}
+                  <span class="badge bg-warning text-dark">DRY RUN</span>
+                {% else %}
+                  <span class="badge bg-light text-dark">{{ status or 'UNKNOWN' }}</span>
+                {% endif %}
+                {% if entry.dry_run and status != 'dry_run' %}
+                  <i class="bi bi-eye text-muted ms-1" title="Dry run"></i>
+                {% endif %}
+              </td>
+
+              <td>{{ entry.rows_processed or 0 }}</td>
+              <td class="text-success">{{ entry.rows_succeeded or 0 }}</td>
+              <td class="text-danger">{{ entry.rows_failed or 0 }}</td>
+
+              <td>
+                {% if entry.started_at %}
+                  {{ entry.started_at[:19] | replace('T', ' ') }}
+                {% else %}
+                  —
+                {% endif %}
+              </td>
+
+              <td>
+                {% if entry.completed_at %}
+                  {{ entry.completed_at[:19] | replace('T', ' ') }}
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+
+              <td>
+                {% if entry.duration_sec is not none %}
+                  {{ entry.duration_sec }}s
+                {% else %}
+                  <span class="text-muted">—</span>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+        {% else %}
+          <tr>
+            <td colspan="11" class="text-center text-muted py-4">
+              <i class="bi bi-inbox fs-3 d-block mb-2"></i>
+              No import history found.
+            </td>
+          </tr>
+        {% endif %}
+      </tbody>
+    </table>
+  </div>
+
+    {# ============ PAGINATION CONTROLS ============ #}
+  {% if total_count > 0 %}
+    <nav aria-label="History pagination" class="mt-3">
+      <div class="d-flex justify-content-between align-items-center flex-wrap gap-2">
+
+        {# ✅ Per-page selector — ALWAYS visible when there are records #}
+        <div class="d-flex align-items-center gap-2">
+          <label for="perPageSelect" class="text-muted small mb-0">Rows per page:</label>
+          <select id="perPageSelect" class="form-select form-select-sm" style="width:auto;">
+            {% for size in [10, 20, 50, 100] %}
+              <option value="{{ size }}" {% if size == per_page %}selected{% endif %}>{{ size }}</option>
+            {% endfor %}
+          </select>
+        </div>
+
+        {# ✅ Page buttons — only when more than one page exists #}
+        {% if total_pages > 1 %}
+          <ul class="pagination pagination-sm mb-0">
+
+            <li class="page-item {% if not has_prev %}disabled{% endif %}">
+              <a class="page-link"
+                 href="?supplier={{ supplier_raw }}&page=1&per_page={{ per_page }}">
+                « First
+              </a>
+            </li>
+
+            <li class="page-item {% if not has_prev %}disabled{% endif %}">
+              <a class="page-link"
+                 href="?supplier={{ supplier_raw }}&page={{ page - 1 }}&per_page={{ per_page }}">
+                ‹ Prev
+              </a>
+            </li>
+
+            {% set window_start = [1, page - 2] | max %}
+            {% set window_end = [total_pages, page + 2] | min %}
+
+            {% if window_start > 1 %}
+              <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+
+            {% for p in range(window_start, window_end + 1) %}
+              <li class="page-item {% if p == page %}active{% endif %}">
+                <a class="page-link"
+                   href="?supplier={{ supplier_raw }}&page={{ p }}&per_page={{ per_page }}">
+                  {{ p }}
+                </a>
+              </li>
+            {% endfor %}
+
+            {% if window_end < total_pages %}
+              <li class="page-item disabled"><span class="page-link">…</span></li>
+            {% endif %}
+
+            <li class="page-item {% if not has_next %}disabled{% endif %}">
+              <a class="page-link"
+                 href="?supplier={{ supplier_raw }}&page={{ page + 1 }}&per_page={{ per_page }}">
+                Next ›
+              </a>
+            </li>
+
+            <li class="page-item {% if not has_next %}disabled{% endif %}">
+              <a class="page-link"
+                 href="?supplier={{ supplier_raw }}&page={{ total_pages }}&per_page={{ per_page }}">
+                Last »
+              </a>
+            </li>
+          </ul>
+
+          <div class="text-muted small">
+            Page <strong>{{ page }}</strong> of <strong>{{ total_pages }}</strong>
+          </div>
+
+        {% else %}
+          {# Single page — show summary instead of page buttons #}
+          <div class="text-muted small">
+            Showing all {{ total_count }} record{{ 's' if total_count != 1 else '' }}
+            {% if per_page < total_count %}
+              — page size {{ per_page }}, {{ total_count }} total
+            {% endif %}
+          </div>
+        {% endif %}
+
+      </div>
+    </nav>
+  {% endif %}
+{% endblock %}
+
+{% block scripts %}
+<script>
+  console.log('[history] page loaded, page={{ page }}/{{ total_pages }}, {{ total_count }} total record(s)');
+
+  // Per-page selector — navigate on change
+  const perPageSelect = document.getElementById('perPageSelect');
+  if (perPageSelect) {
+    perPageSelect.addEventListener('change', function () {
+      const params = new URLSearchParams(window.location.search);
+      params.set('per_page', this.value);
+      params.set('page', '1');   // reset to first page on page-size change
+      window.location.search = params.toString();
+    });
+  }
+</script>
+{% endblock %}
