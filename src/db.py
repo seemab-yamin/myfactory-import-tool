@@ -91,7 +91,6 @@ class DatabaseManager:
             logger.info(f"🔍 DB Database: {settings.db_database}")
             logger.info(f"🔍 DB Driver: {settings.db_driver}")
             logger.info(f"🔍 DB Port: {settings.db_port}")
-            logger.info(f"🔍 Trusted Connection: {settings.db_trusted_connection}")
             logger.info(
                 f"🔍 Username: {settings.db_username if settings.db_username else '(not set)'}"
             )
@@ -317,9 +316,6 @@ class DatabaseManager:
             logger.info("🔍 Checking cache...")
             cached = self._get_cached_columns(table_name, sort_by=sort_by)
             if cached:
-                logger.info(
-                    f"✅ Returning {len(cached)} cached columns from SQLite for {table_name}"
-                )
                 return cached
             logger.info("🔍 No cached columns found")
 
@@ -375,7 +371,6 @@ class DatabaseManager:
                         }
                         for c in columns
                     ]
-                    logger.info(f"✅ Returning {len(result)} cached columns")
                     return result
                 else:
                     logger.info("ℹ️ No cached columns found")
