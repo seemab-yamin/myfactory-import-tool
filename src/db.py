@@ -75,7 +75,6 @@ class DatabaseManager:
 
     def _get_myfactory_engine(self) -> "Engine":
         """Get or create Myfactory database engine."""
-        logger.info("🔍 _get_myfactory_engine called")
 
         if self._myfactory_engine is None:
             logger.info("🔍 Myfactory engine is None, creating new engine...")
@@ -170,7 +169,7 @@ class DatabaseManager:
 
     def get_myfactory_session(self) -> Optional[Session]:
         """Get a session for the Myfactory database."""
-        logger.info("🔍 get_myfactory_session called")
+
         engine = self._get_myfactory_engine()
         if engine is None:
             logger.warning("⚠️ Engine is None, returning None")
@@ -190,16 +189,14 @@ class DatabaseManager:
     @contextmanager
     def myfactory_session(self) -> Generator[Session, None, None]:
         """Context manager for Myfactory database session."""
-        logger.info("🔍 myfactory_session context manager called")
+
         session = self.get_myfactory_session()
         if session is None:
             logger.error("❌ Session is None - database not configured")
             raise RuntimeError("Myfactory database not configured. Please run setup.")
 
         try:
-            logger.info("🔍 Yielding session...")
             yield session
-            logger.info("🔍 Committing session...")
             session.commit()
             logger.info("✅ Session committed successfully")
         except Exception as e:
@@ -208,13 +205,12 @@ class DatabaseManager:
             logger.info("🔍 Session rolled back")
             raise
         finally:
-            logger.info("🔍 Closing session...")
             session.close()
             logger.info("✅ Session closed")
 
     def get_myfactory_engine(self) -> Optional["Engine"]:
         """Get the Myfactory database engine."""
-        logger.info("🔍 get_myfactory_engine called")
+
         return self._get_myfactory_engine()
 
     # ========== Utility Methods ==========
@@ -307,9 +303,6 @@ class DatabaseManager:
         - use_cache=True:  return cached columns from SQLite (with IDs).
         - use_cache=False: fetch live from MSSQL, refresh SQLite cache, return cached rows.
         """
-        logger.info(
-            f"🔍 get_table_columns called: table={table_name}, use_cache={use_cache}"
-        )
 
         # ✅ Step 1: Cache hit
         if use_cache:
@@ -347,7 +340,7 @@ class DatabaseManager:
         self, table_name: str, sort_by: str = "id"
     ) -> Optional[List[Dict[str, Any]]]:
         """Get cached columns from local database."""
-        logger.info(f"🔍 _get_cached_columns called: table={table_name}")
+
         try:
             with self.local_session() as session:
                 logger.info("🔍 Querying TargetField table...")
@@ -380,9 +373,7 @@ class DatabaseManager:
 
     def _cache_columns(self, table_name: str, columns: List[Dict[str, Any]]) -> None:
         """Cache column information in local SQLite database."""
-        logger.info(
-            f"🔍 _cache_columns called: table={table_name}, columns={len(columns)}"
-        )
+
         try:
             with self.local_session() as session:
                 logger.info(f"🔍 Deleting existing cache for {table_name}...")
@@ -437,7 +428,6 @@ class DatabaseManager:
 
     def table_exists(self, table_name: str) -> bool:
         """Check if a table exists in Myfactory database."""
-        logger.info(f"🔍 table_exists called: {table_name}")
 
         engine = self._get_myfactory_engine()
         if engine is None:
@@ -461,7 +451,6 @@ class DatabaseManager:
         fetch_one: bool = False,
     ) -> List[Dict[str, Any]]:
         """Execute a raw query on Myfactory database."""
-        logger.info(f"🔍 execute_query called: {query[:100]}...")
 
         engine = self._get_myfactory_engine()
         if engine is None:
