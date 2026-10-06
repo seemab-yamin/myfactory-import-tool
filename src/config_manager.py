@@ -3,8 +3,7 @@
 import getpass
 import json
 import os
-from dataclasses import dataclass
-from enum import Enum
+from dataclasses import MISSING, dataclass, fields
 from typing import Any, Dict, Optional, Tuple
 
 import keyring
@@ -22,105 +21,93 @@ CONFIG_PATH = CONFIG_DIR / "config.json"
 ENV_PATH = CONFIG_DIR / ".env"
 
 
-class AuthMethod(Enum):
-    """Authentication method enum."""
-
-    WINDOWS = "windows"
-    SQL = "sql"
-
-
 @dataclass
 class AppSettings:
-    """Application settings with validation."""
+    """Validated application settings."""
 
     # Database Connection
-    db_server: str = "localhost"
-    db_database: str = "master"
-    db_driver: str = "ODBC Driver 17 for SQL Server"
-    db_username: str = ""
-    db_password: str = ""
-    db_trusted_connection: bool = False
-    db_port: int = 1433
-    db_connection_timeout: int = 30
-
-    # Authentication
-    auth_method: str = "windows"  # "windows" or "sql"
+    db_server: str
+    db_database: str
+    db_driver: str
+    db_username: str
+    db_password: str
+    db_port: int
+    db_connection_timeout: int
 
     # Import Settings
-    default_products_table: str = "tdProducts"
+    default_products_table: str
 
     # Logging
     log_level: str = "INFO"
-    log_max_bytes: int = 5_000_000
-    log_backup_count: int = 3
+    log_max_bytes: int = 10 * 1024 * 1024  # 10 MB
+    log_backup_count: int = 5
 
     # App Metadata
     app_name: str = "MyFactory Import Tool"
     app_version: str = "1.0.0"
-    app_data_dir: str = ""
 
-    def __post_init__(self):
-        """Set default app data directory."""
-        if not self.app_data_dir:
-            self.app_data_dir = self._get_default_app_data_dir()
-
-    def _get_default_app_data_dir(self) -> str:
-        """Get default application data directory."""
-        if os.name == "nt":  # Windows
-            return os.path.join(os.environ.get("APPDATA", ""), "MyFactoryImport")
-        else:  # Linux/macOS
-            return os.path.join(os.path.expanduser("~"), ".config", "myfactory-import")
-
-    def to_dict(self) -> Dict[str, Any]:
-        """Convert to dictionary for JSON serialization."""
+    def _to_dict(self) -> Dict[str, Any]:
+        """Convert settings to dictionary for JSON serialization."""
         return {
             "db_server": self.db_server,
             "db_database": self.db_database,
             "db_driver": self.db_driver,
-            "db_trusted_connection": self.db_trusted_connection,
+            "db_username": self.db_username,
+            "db_password": self.db_password,
             "db_port": self.db_port,
             "db_connection_timeout": self.db_connection_timeout,
-            "auth_method": self.auth_method,
             "default_products_table": self.default_products_table,
             "log_level": self.log_level,
             "log_max_bytes": self.log_max_bytes,
             "log_backup_count": self.log_backup_count,
             "app_name": self.app_name,
             "app_version": self.app_version,
-            "app_data_dir": self.app_data_dir,
         }
 
     @classmethod
     def from_dict(cls, data: Dict[str, Any]) -> "AppSettings":
-        """Create settings from dictionary."""
-        return cls(**{k: v for k, v in data.items() if hasattr(cls, k)})
+        """Create settings from configuration dictionary."""
+
+        valid_fields = fields(cls)
+
+        filtered_data = {
+            field.name: data[field.name] for field in valid_fields if field.name in data
+        }
+
+        missing = [
+            field.name
+            for field in valid_fields
+            if field.default is MISSING
+            and field.default_factory is MISSING
+            and field.name not in filtered_data
+        ]
+
+        if missing:
+            raise ValueError(
+                "Missing required configuration values: " + ", ".join(missing)
+            )
+
+        return cls(**filtered_data)
 
     def get_connection_string(self) -> str:
         """Get ODBC connection string."""
-        if self.db_trusted_connection:
-            return (
-                f"DRIVER={{{self.db_driver}}};"
-                f"SERVER={self.db_server};"
-                f"DATABASE={self.db_database};"
-                f"Trusted_Connection=yes;"
-                f"Connection Timeout={self.db_connection_timeout};"
-            )
-        else:
-            return (
-                f"DRIVER={{{self.db_driver}}};"
-                f"SERVER={self.db_server};"
-                f"DATABASE={self.db_database};"
-                f"UID={self.db_username};"
-                f"PWD={self.db_password};"
-                f"Connection Timeout={self.db_connection_timeout};"
-            )
+
+        return (
+            f"DRIVER={{{self.db_driver}}};"
+            f"SERVER={self.db_server};"
+            f"DATABASE={self.db_database};"
+            f"UID={self.db_username};"
+            f"PWD={self.db_password};"
+            f"Connection Timeout={self.db_connection_timeout};"
+        )
 
     def get_sqlalchemy_url(self) -> str:
         """Get SQLAlchemy connection URL."""
-        if self.db_trusted_connection:
-            return f"mssql+pyodbc://@{self.db_server}/{self.db_database}?driver={self.db_driver}&Trusted_Connection=yes"
-        else:
-            return f"mssql+pyodbc://{self.db_username}:{self.db_password}@{self.db_server}/{self.db_database}?driver={self.db_driver}"
+        return (
+            f"mssql+pyodbc://{self.db_username}:{self.db_password}"
+            f"@{self.db_server}/{self.db_database}?"
+            f"driver={self.db_driver}"
+        )
 
     def validate(self) -> Tuple[bool, str]:
         """Validate settings."""
@@ -130,11 +117,14 @@ class AppSettings:
         if not self.db_database:
             return False, "Database name is required"
 
-        if not self.db_trusted_connection:
-            if not self.db_username:
-                return False, "Username is required for SQL authentication"
-            if not self.db_password:
-                return False, "Password is required for SQL authentication"
+        if not self.db_driver:
+            return False, "Database driver is required"
+
+        if not self.db_username:
+            return False, "Username is required for SQL authentication"
+
+        if not self.db_password:
+            return False, "Password is required for SQL authentication"
 
         return True, "Valid"
 
@@ -146,153 +136,230 @@ class ConfigManager:
         self.config_path = CONFIG_PATH
         self.env_path = ENV_PATH
         self._settings: Optional[AppSettings] = None
-        self._is_configured = False
+
         self._load()
 
     def _load(self):
-        """Load configuration from multiple sources."""
-        # Start with defaults
-        self._settings = AppSettings()
+        """Load and validate configuration."""
 
-        # 1. Load from config.json
-        self._load_config_file()
+        config_data: Dict[str, Any] = {}
 
-        # 2. Load from .env
-        self._load_env()
+        cdata = self._load_config_file()
 
-        # 3. Load from Windows Keyring
-        self._load_keyring()
+        # 2. Load Windows Keyring
+        if not self._load_keyring(config_data):
+            # only call if keyring method fails
+            is_credential_loaded = self._load_env(config_data)
+        else:
+            is_credential_loaded = True
 
-        # 4. Check if configured
-        self._is_configured = self._settings.validate()[0]
+        if is_credential_loaded and cdata:
+            config_data.update(cdata)
+            logger.info("Configuration and Credential loaded successfully")
+        else:
+            # if values missing call interactive_setup
+            self.interactive_setup(config_data)
+            return
 
-        logger.info(f"Configuration loaded (configured: {self._is_configured})")
+        self._settings = AppSettings.from_dict(config_data)
+        # 3. Validate and construct AppSettings
+        valid, message = self._settings.validate()
 
-    def _load_config_file(self):
+        if not valid:
+            raise ValueError(f"Invalid configuration: {message}")
+
+    def _load_config_file(self) -> Dict[str, Any]:
         """Load settings from config.json."""
-        if self.config_path.exists():
-            try:
-                with open(self.config_path, "r", encoding="utf-8") as f:
-                    data = json.load(f)
-                    for key, value in data.items():
-                        if hasattr(self._settings, key):
-                            setattr(self._settings, key, value)
-                logger.info(f"Loaded config from {self.config_path}")
-            except Exception as e:
-                logger.warning(f"Could not load config: {e}")
+        if not self.config_path.exists():
+            logger.warning(f"Config file not found: {self.config_path}")
+            return {}
 
-    def _load_env(self):
+        try:
+            with open(self.config_path, "r", encoding="utf-8") as f:
+                data = json.load(f)
+
+            if not isinstance(data, dict):
+                raise ValueError("config.json must contain a JSON object")
+
+            logger.info(f"Loaded config from {self.config_path}")
+            return data
+
+        except Exception as e:
+            raise RuntimeError(
+                f"Could not load config file {self.config_path}: {e}"
+            ) from e
+
+    def _load_env(self, config_data: Dict[str, Any]):
         """Load credentials from .env file."""
-        if self.env_path.exists():
-            try:
-                load_dotenv(self.env_path)
-                self._settings.db_username = os.getenv(
-                    "DB_USERNAME", self._settings.db_username
-                )
-                self._settings.db_password = os.getenv(
-                    "DB_PASSWORD", self._settings.db_password
-                )
+
+        if not self.env_path.exists():
+            return
+
+        try:
+            load_dotenv(self.env_path)
+
+            username = os.getenv("DB_USERNAME")
+            password = os.getenv("DB_PASSWORD")
+
+            if username is not None:
+                config_data["db_username"] = username
+
+            if password is not None:
+                config_data["db_password"] = password
+
+            if username and password:
                 logger.info(f"Loaded settings from {self.env_path}")
-            except Exception as e:
-                logger.warning(f"Could not load .env: {e}")
+                return True
 
-    def _load_keyring(self):
+        except Exception as e:
+            raise RuntimeError(f"Could not load .env file {self.env_path}: {e}") from e
+
+    def _load_keyring(self, config_data: Dict[str, Any]):
         """Load credentials from Windows Keyring."""
-        if os.name == "nt":
-            try:
-                username = keyring.get_password(KEYRING_SERVICE, "db_username")
-                password = keyring.get_password(KEYRING_SERVICE, "db_password")
-                if username and password:
-                    self._settings.db_username = username
-                    self._settings.db_password = password
-                    logger.info("Loaded credentials from Windows Keyring")
-            except Exception as e:
-                logger.debug(f"Keyring not available: {e}")
 
-    def get(self) -> AppSettings:
-        """Get current settings."""
+        if os.name != "nt":
+            return
+
+        try:
+            username = keyring.get_password(
+                KEYRING_SERVICE,
+                "db_username",
+            )
+            password = keyring.get_password(
+                KEYRING_SERVICE,
+                "db_password",
+            )
+
+            if username is not None:
+                config_data["db_username"] = username
+
+            if password is not None:
+                config_data["db_password"] = password
+
+            if username and password:
+                logger.info("Loaded credentials from Windows Keyring")
+                return True
+        except Exception as e:
+            logger.warning(f"Keyring not available: {e}")
+
+    def _require_settings(self) -> AppSettings:
+        """Return loaded settings or raise if unavailable."""
+        if self._settings is None:
+            raise RuntimeError("Application configuration has not been loaded")
+
         return self._settings
 
-    def is_configured(self) -> bool:
-        """Check if configuration is complete."""
-        return self._is_configured
+    def interactive_setup(
+        self, config_data: Dict[str, Any], force: bool = False
+    ) -> bool:
+        """Run interactive setup to configure credentials."""
 
-    def interactive_setup(self, force: bool = False) -> bool:
-        """
-        Run interactive setup to configure credentials.
-
-        Args:
-            force: Force setup even if already configured
-
-        Returns:
-            True if setup was successful
-        """
-        if not force and self.is_configured():
+        if not force and self._settings is not None and self.is_configured():
             print("\n✅ Configuration already exists.")
             choice = input("Do you want to reconfigure? (y/n): ").strip().lower()
+
             if choice != "y":
                 return True
 
         print("\n" + "=" * 70)
         print("🔐 MyFactory Import Tool - Interactive Setup")
         print("=" * 70)
+
         print("\nThis will configure your database connection settings.")
+
         if os.name == "nt":
             print(
-                "Credentials will be stored securely in Windows Credential Manager.\n"
+                "Credentials will be stored securely in "
+                "Windows Credential Manager.\n"
             )
 
         try:
+            # Use existing values only when available.
+            current = self._settings
+
             # Step 1: Database Server
             print("--- Database Connection ---")
-            default_server = self._settings.db_server or "TCS135\\SQLEXPRESS"
-            server = input(f"SQL Server instance [{default_server}]: ").strip()
-            self._settings.db_server = server or default_server
 
-            default_db = self._settings.db_database or "master"
-            database = input(f"Database name [{default_db}]: ").strip()
-            self._settings.db_database = database or default_db
-
-            default_driver = self._settings.db_driver or "ODBC Driver 17 for SQL Server"
-            driver = input(f"ODBC Driver [{default_driver}]: ").strip()
-            self._settings.db_driver = driver or default_driver
-
-            # Step 2: Authentication
-            print("\n--- Authentication ---")
-            print("  1. Windows Authentication (Trusted Connection)")
-            print("  2. SQL Server Authentication (Username/Password)")
-            auth_choice = (
-                input("Choose authentication method (1/2) [1]: ").strip() or "1"
+            default_server = (
+                current.db_server
+                if current and current.db_server
+                else "TCS135\\SQLEXPRESS"
             )
 
-            if auth_choice == "2":
-                self._settings.db_trusted_connection = False
-                self._settings.auth_method = "sql"
+            server = input(f"SQL Server instance [{default_server}]: ").strip()
 
+            config_data["db_server"] = server or default_server
+
+            default_db = (
+                current.db_database if current and current.db_database else "master"
+            )
+
+            database = input(f"Database name [{default_db}]: ").strip()
+
+            config_data["db_database"] = database or default_db
+
+            default_driver = (
+                current.db_driver
+                if current and current.db_driver
+                else "ODBC Driver 17 for SQL Server"
+            )
+
+            default_port = current.db_port if current and current.db_port else 1433
+            db_port = input(f"Database port [{default_port}]: ").strip()
+            config_data["db_port"] = int(db_port) if db_port else default_port
+
+            default_db_connection_timeout = (
+                current.db_connection_timeout
+                if current and current.db_connection_timeout
+                else 30
+            )
+            db_connection_timeout = input(
+                f"Database connection timeout (seconds) [{default_db_connection_timeout}]: "
+            ).strip()
+            config_data["db_connection_timeout"] = (
+                int(db_connection_timeout)
+                if db_connection_timeout
+                else default_db_connection_timeout
+            )
+
+            driver = input(f"ODBC Driver [{default_driver}]: ").strip()
+
+            config_data["db_driver"] = driver or default_driver
+
+            username = input("Username: ").strip()
+
+            while not username:
+                print("❌ Username is required.")
                 username = input("Username: ").strip()
-                while not username:
-                    print("❌ Username is required.")
-                    username = input("Username: ").strip()
-                self._settings.db_username = username
 
+            config_data["db_username"] = username
+
+            password = getpass.getpass("Password: ")
+
+            while not password:
+                print("❌ Password is required.")
                 password = getpass.getpass("Password: ")
-                while not password:
-                    print("❌ Password is required.")
-                    password = getpass.getpass("Password: ")
-                self._settings.db_password = password
-            else:
-                self._settings.db_trusted_connection = False
-                self._settings.auth_method = "windows"
-                self._settings.db_username = ""
-                self._settings.db_password = ""
+
+            config_data["db_password"] = password
 
             # Step 3: Import Settings
             print("\n--- Import Settings ---")
+
             default_products_table = (
-                self._settings.default_products_table or "tdProducts"
+                current.default_products_table
+                if current and current.default_products_table
+                else "tdProducts"
             )
+
             table = input(f"Default product table [{default_products_table}]: ").strip()
-            self._settings.default_products_table = table or default_products_table
+            config_data["default_products_table"] = table or default_products_table
+
+            self._settings = AppSettings.from_dict(config_data)
+            # 3. Validate and construct AppSettings
+            valid, message = self._settings.validate()
+
+            if not valid:
+                raise ValueError(f"Invalid configuration: {message}")
 
             # Step 4: Test Connection
             print("\n--- Testing Connection ---")
@@ -319,13 +386,13 @@ class ConfigManager:
                     return self.interactive_setup(force=True)
                 else:
                     return False
-
         except KeyboardInterrupt:
             print("\n\n❌ Setup cancelled by user.")
             return False
+
         except Exception as e:
             print(f"\n❌ Setup error: {e}")
-            logger.error(f"Setup error: {e}", exc_info=True)
+            logger.error("Setup error", exc_info=True)
             return False
 
     def _test_connection(self) -> bool:
@@ -333,15 +400,24 @@ class ConfigManager:
         try:
             import pyodbc
 
-            conn_str = self._settings.get_connection_string()
+            settings = self._require_settings()
+
+            conn_str = settings.get_connection_string()
+
             conn = pyodbc.connect(
-                conn_str, timeout=self._settings.db_connection_timeout
+                conn_str,
+                timeout=settings.db_connection_timeout,
             )
+
             cursor = conn.cursor()
             cursor.execute("SELECT 1")
             cursor.fetchone()
+
+            cursor.close()
             conn.close()
+
             return True
+
         except Exception as e:
             print(f"❌ Connection error: {e}")
             logger.error(f"Connection test failed: {e}")
@@ -349,61 +425,102 @@ class ConfigManager:
 
     def _save_all(self):
         """Save all configuration."""
-        # Create config directory
-        self.config_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # Save config.json (non-sensitive)
-        config_data = self._settings.to_dict()
-        # Remove sensitive data from config.json
+        settings = self._require_settings()
+
+        self.config_path.parent.mkdir(
+            parents=True,
+            exist_ok=True,
+        )
+        config_data = settings._to_dict()
+
+        # Never store sensitive credentials in config.json.
         config_data.pop("db_password", None)
-        if not self._settings.db_trusted_connection:
-            config_data.pop("db_username", None)
+        config_data.pop("db_username", None)
 
-        with open(self.config_path, "w", encoding="utf-8") as f:
+        with open(
+            self.config_path,
+            "w",
+            encoding="utf-8",
+        ) as f:
             json.dump(config_data, f, indent=2)
+
         logger.info(f"Config saved to {self.config_path}")
 
-        # Save credentials to Windows Keyring (Windows only)
-        if os.name == "nt" and not self._settings.db_trusted_connection:
+        # Store credentials in Windows Keyring.
+        if os.name == "nt":
             try:
                 keyring.set_password(
-                    KEYRING_SERVICE, "db_username", self._settings.db_username
+                    KEYRING_SERVICE,
+                    "db_username",
+                    settings.db_username,
                 )
+
                 keyring.set_password(
-                    KEYRING_SERVICE, "db_password", self._settings.db_password
+                    KEYRING_SERVICE,
+                    "db_password",
+                    settings.db_password,
                 )
+
                 logger.info("Credentials saved to Windows Keyring")
+
             except Exception as e:
                 logger.warning(f"Could not save to Keyring: {e}")
-                self._save_env_credentials()
 
-        # Save .env fallback
+        # Keep .env as fallback.
         self._save_env_credentials()
 
     def _save_env_credentials(self):
         """Save credentials to .env file."""
+
+        settings = self._require_settings()
+
         try:
-            self.env_path.parent.mkdir(parents=True, exist_ok=True)
-            with open(self.env_path, "w", encoding="utf-8") as f:
-                f.write(f"DB_USERNAME={self._settings.db_username}\n")
-                f.write(f"DB_PASSWORD={self._settings.db_password}\n")
+            self.env_path.parent.mkdir(
+                parents=True,
+                exist_ok=True,
+            )
+
+            with open(
+                self.env_path,
+                "w",
+                encoding="utf-8",
+            ) as f:
+                f.write(f"DB_USERNAME={settings.db_username}\n")
+                f.write(f"DB_PASSWORD={settings.db_password}\n")
+
             logger.info(f"Credentials saved to {self.env_path}")
+
         except Exception as e:
             logger.warning(f"Could not save .env: {e}")
 
-    def get_credentials(self) -> Tuple[Optional[str], Optional[str]]:
-        """Get credentials (username, password)."""
-        if self._settings.db_trusted_connection:
-            return None, None
-        return self._settings.db_username, self._settings.db_password
+    def get_credentials(
+        self,
+    ) -> Tuple[Optional[str], Optional[str]]:
+        """Get credentials."""
+        settings = self._require_settings()
+
+        return (
+            settings.db_username,
+            settings.db_password,
+        )
 
     def clear_credentials(self):
         """Clear stored credentials."""
+
         try:
             if os.name == "nt":
-                keyring.delete_password(KEYRING_SERVICE, "db_username")
-                keyring.delete_password(KEYRING_SERVICE, "db_password")
+                for credential in ("db_username", "db_password"):
+                    try:
+                        keyring.delete_password(
+                            KEYRING_SERVICE,
+                            credential,
+                        )
+                    except keyring.errors.PasswordDeleteError:
+                        pass
+
                 logger.info("Credentials cleared from Keyring")
+
         except Exception as e:
             logger.debug(f"Keyring clear failed: {e}")
 
@@ -414,23 +531,41 @@ class ConfigManager:
             except Exception as e:
                 logger.warning(f"Could not delete .env: {e}")
 
-        self._settings.db_username = ""
-        self._settings.db_password = ""
-        self._is_configured = False
+        settings = self._require_settings()
+
+        settings.db_username = ""
+        settings.db_password = ""
+
         self._save_all()
 
-    def set_setting(self, key: str, value: Any):
+    def set_setting(
+        self,
+        key: str,
+        value: Any,
+    ):
         """Update a setting and save."""
-        if hasattr(self._settings, key):
-            setattr(self._settings, key, value)
-            self._save_all()
-            logger.info(f"Updated setting: {key} = {value}")
-        else:
+
+        settings = self._require_settings()
+
+        if not hasattr(settings, key):
             raise ValueError(f"Unknown setting: {key}")
+
+        setattr(settings, key, value)
+
+        valid, message = settings.validate()
+
+        if not valid:
+            raise ValueError(f"Invalid setting: {message}")
+
+        self._save_all()
+
+        logger.info(f"Updated setting: {key}")
 
     def get_config_summary(self) -> str:
         """Get a summary of the configuration."""
-        s = self._settings
+
+        s = self._require_settings()
+
         lines = [
             "=" * 50,
             "📋 Configuration Summary",
@@ -438,13 +573,28 @@ class ConfigManager:
             f"Server:        {s.db_server}",
             f"Database:      {s.db_database}",
             f"Driver:        {s.db_driver}",
-            f"Auth Method:   {s.auth_method.upper()}",
             f"Table:         {s.default_products_table}",
             f"Log Level:     {s.log_level}",
-            f"Data Directory: {s.app_data_dir}",
             "=" * 50,
         ]
+
         return "\n".join(lines)
+
+    def is_configured(self) -> bool:
+        """Return True when a valid configuration is available."""
+
+        if self._settings is None:
+            return False
+
+        valid, _ = self._settings.validate()
+        return valid
+
+    def get(self) -> AppSettings:
+        """Return the validated application settings."""
+        if self.is_configured():
+            return self._require_settings()
+        else:
+            raise RuntimeError("Configuration is not available or invalid")
 
 
 # Global instance
@@ -454,15 +604,8 @@ _config_manager: Optional[ConfigManager] = None
 def get_config_manager() -> ConfigManager:
     """Get global config manager instance."""
     global _config_manager
+
     if _config_manager is None:
         _config_manager = ConfigManager()
+
     return _config_manager
-
-
-def ensure_configured() -> bool:
-    """Ensure configuration exists, run setup if needed."""
-    manager = get_config_manager()
-    if not manager.is_configured():
-        print("🔐 Database configuration not found. Starting setup...")
-        return manager.interactive_setup()
-    return True
