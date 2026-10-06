@@ -6,7 +6,7 @@ import sys
 from datetime import datetime
 from pathlib import Path
 
-from src.config_manager import ensure_configured, get_config_manager
+from src.config_manager import get_config_manager
 from src.db import get_db_manager
 from src.importer import get_importer
 from src.logger import get_logger
@@ -139,10 +139,6 @@ def create_parser():
 def cli_import(args):
     """Import command: import file with supplier mapping."""
 
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
-
     logger.info(f"📁 Importing file: {args.file}")
     logger.info(f"🏷️ Supplier: {args.supplier}")
     logger.info(f"🔍 Dry run: {args.dry_run}")
@@ -182,9 +178,6 @@ def cli_import(args):
 
 def cli_list_mappings(args):
     """List mappings for a supplier."""
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
 
     mapper = get_mapper()
 
@@ -213,9 +206,6 @@ def cli_list_mappings(args):
 
 def cli_save_mapping(args):
     """Save a mapping for a supplier."""
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
 
     mapper = get_mapper()
     mapper.save_mapping(args.supplier, args.source, args.target, args.active)
@@ -224,9 +214,6 @@ def cli_save_mapping(args):
 
 def cli_history(args):
     """Show import history."""
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
 
     importer = get_importer()
     history = importer.get_import_history(args.supplier, args.limit or 20)
@@ -287,9 +274,6 @@ def cli_clear_credentials(args):
 
 def cli_export_mappings(args):
     """Export mappings to JSON."""
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
 
     mapper = get_mapper()
     mappings = mapper.get_mappings(args.supplier)
@@ -310,10 +294,6 @@ def cli_export_mappings(args):
 
 def cli_schema(args):
     """Show table schema with rich formatting."""
-
-    if not ensure_configured():
-        logger.error("Configuration not set up. Run 'python main.py setup' first.")
-        sys.exit(1)
 
     try:
         from rich import box
