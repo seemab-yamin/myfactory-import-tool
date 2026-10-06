@@ -12,7 +12,6 @@ from src.logger import (
 )
 from src.models import (
     ImportAudit,
-    ImportSettings,
     Supplier,
     TargetField,
 )
@@ -36,7 +35,6 @@ __all__ = [
     "get_default_logger",
     "get_logger",
     "ImportAudit",
-    "ImportSettings",
     "ImportStatus",
     "LOG_DIR",
     "LoggerAdapter",

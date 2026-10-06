@@ -17,6 +17,7 @@ from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
 
 from src.schemas.dto import ImportStatus
 
+
 class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
 
@@ -274,23 +275,3 @@ class ImportAudit(Base):
         self.error_message = error_message
         if details:
             self.details = details
-
-
-class ImportSettings(Base):
-    """Global import settings stored in local DB."""
-
-    __tablename__ = "import_settings"
-
-    id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
-    key: Mapped[str] = mapped_column(String(100), nullable=False, unique=True)
-    value: Mapped[str] = mapped_column(Text, nullable=False)
-    description: Mapped[Optional[str]] = mapped_column(String(500), nullable=True)
-    is_encrypted: Mapped[bool] = mapped_column(Boolean, default=False)
-
-    created_at: Mapped[datetime] = mapped_column(DateTime, default=datetime.utcnow)
-    updated_at: Mapped[datetime] = mapped_column(
-        DateTime, default=datetime.utcnow, onupdate=datetime.utcnow
-    )
-
-    def __repr__(self) -> str:
-        return f"<ImportSettings(key={self.key}, value={self.value[:20] if self.value else ''}...)>"
