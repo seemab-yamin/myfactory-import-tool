@@ -216,7 +216,7 @@ def cli_history(args):
     """Show import history."""
 
     importer = get_importer()
-    history = importer.get_import_history(args.supplier, args.limit or 20)
+    history, _ = importer.get_import_history(args.supplier, args.limit or 20)
 
     if not history:
         print("📋 No import history found.")
