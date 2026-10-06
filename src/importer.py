@@ -49,24 +49,17 @@ def run_import(
 
 
 class MyfactoryImporter:
-    """
-    Main importer class for Myfactory CRM.
-
-    Handles:
-        - CSV/Excel parsing with auto-delimiter detection
-        - Column mapping via FieldMapper
-        - Batch insert with error tolerance
-        - Dry-run mode with preview
-        - Audit logging
-    """
 
     def __init__(
         self,
+        table_name: str = "",
         batch_size: int = 1000,
         auto_fetch_mapping: bool = True,
     ):
         self.config = get_config_manager().get()
-        self.default_products_table = self.config.default_products_table
+        self.table_name = (
+            table_name if table_name else self.config.default_products_table
+        )
         self.auto_fetch_mapping = auto_fetch_mapping
         self.batch_size = batch_size or self.config.default_batch_size
         self.mapper = get_mapper()
@@ -76,9 +69,7 @@ class MyfactoryImporter:
     def get_target_columns(self) -> List[str]:
         """Get target columns from the database."""
         if self._target_columns is None:
-            columns = self.db_manager.get_table_columns(
-                self.default_products_table, use_cache=True
-            )
+            columns = self.db_manager.get_table_columns(self.table_name, use_cache=True)
             self._target_columns = [col["name"] for col in columns]
         return self._target_columns
 
@@ -95,7 +86,7 @@ class MyfactoryImporter:
         supplier_id = config.supplier_id
         logger.info("=" * 60)
         logger.info(f"🚀 Starting import from: {config.file_path}")
-        logger.info(f"   Table: {config.table_name}")
+        logger.info(f"   Table: {self.table_name}")
         logger.info(f"   Dry run: {config.dry_run}")
         logger.info(f"   Batch size: {config.batch_size}")
         logger.info("=" * 60)
@@ -115,7 +106,7 @@ class MyfactoryImporter:
             supplier_name=config.supplier_name,
             file_path=config.file_path,
             import_id=config.import_id,
-            table_name=config.table_name,
+            table_name=self.table_name,
             dry_run=config.dry_run,
         )
         with local_session() as session:
@@ -156,9 +147,7 @@ class MyfactoryImporter:
             if config.dry_run:
                 result = self._dry_run(validated_df, mapping, audit_id)
             else:
-                result = self._perform_import(
-                    validated_df, config.table_name, config.batch_size
-                )
+                result = self._perform_import(validated_df, config.batch_size)
 
             # 6. Update audit
             result.audit_id = audit_id
@@ -182,7 +171,6 @@ class MyfactoryImporter:
                     audit.status = ImportStatus.FAILED.value
                     audit.error_message = str(e)
                     audit.completed_at = datetime.utcnow()
-                    session.commit()
 
             return ImportResultDTO(
                 status=ImportStatus.FAILED,
@@ -346,9 +334,7 @@ class MyfactoryImporter:
 
         return df, errors
 
-    def _perform_import(
-        self, df: pd.DataFrame, table_name: str, batch_size: int
-    ) -> ImportResultDTO:
+    def _perform_import(self, df: pd.DataFrame, batch_size: int) -> ImportResultDTO:
         """Perform batch insert into database."""
         if df.empty:
             logger.warning("No data to import")
@@ -368,24 +354,35 @@ class MyfactoryImporter:
         records = df.to_dict("records")
         for i in range(0, total_rows, batch_size):
             columns = list(records[0].keys())
-            column_sql = ", ".join(f"[{column}]" for column in columns)
             batch = records[i : i + batch_size]
             batch_num = (i // batch_size) + 1
             try:
+                batch_with_ids = []
                 with myfactory_session() as session:
-                    values_sql = ", ".join(f":{column}" for column in columns)
+                    for row in batch:
+                        product_id = get_next_record_id(session, "tdProducts")
+                        row["ProductID"] = product_id
+                        batch_with_ids.append(row)
+                    columns = list(batch_with_ids[0].keys())
                     stmt = text(f"""
-                        INSERT INTO [{table_name}] ({column_sql})
-                        VALUES ({values_sql})
+                        INSERT INTO [{self.table_name}]
+                        ({", ".join(f"[{c}]" for c in columns)})
+                        VALUES
+                        ({", ".join(f":{c}" for c in columns)})
                     """)
-                    session.execute(stmt, batch)
-                imported_rows += len(batch)
-                logger.info(f"✅ Batch {batch_num}: Inserted {len(batch)} rows")
+                    session.execute(stmt, batch_with_ids)
+                imported_rows += len(batch_with_ids)
+                logger.info(
+                    f"✅ Batch {batch_num}: Inserted {len(batch_with_ids)} rows"
+                )
             except Exception as e:
                 logger.error(f"❌ Batch {batch_num} failed: {e}")
-                # failed_rows += self._insert_rows_individually(batch, errors)
+                failed_rows += self._insert_rows_individually(batch, errors)
+        status = (
+            ImportStatus.SUCCESS if imported_rows == total_rows else ImportStatus.FAILED
+        )
         return ImportResultDTO(
-            status=ImportStatus.SUCCESS if failed_rows == 0 else ImportStatus.FAILED,
+            status=status,
             total_rows=total_rows,
             imported_rows=imported_rows,
             failed_rows=failed_rows,
@@ -397,10 +394,11 @@ class MyfactoryImporter:
     def _insert_rows_individually(self, rows: List[Dict], errors: List[str]) -> int:
         """Insert rows one by one (fallback for batch failure)."""
         failed = 0
-
         for row in rows:
             try:
                 with myfactory_session() as session:
+                    product_id = get_next_record_id(session, "tdProducts")
+                    row["ProductID"] = product_id
                     session.execute(
                         text(
                             f"INSERT INTO {self.table_name} ({', '.join(row.keys())}) "
@@ -408,7 +406,6 @@ class MyfactoryImporter:
                         ),
                         row,
                     )
-                    session.commit()
             except Exception as e:
                 failed += 1
                 error_msg = f"Row failed: {row.get('ProductNumber', 'unknown')} - {e}"
@@ -474,7 +471,6 @@ class MyfactoryImporter:
                     error_message="; ".join(errors[:5]) if errors else None,
                     details=result.details,
                 )
-                session.commit()
                 logger.debug(f"Audit {audit_id} updated")
 
     def _log_summary(self, result: ImportResultDTO, dry_run: bool):
@@ -485,7 +481,6 @@ class MyfactoryImporter:
         else:
             logger.info("📊 IMPORT SUMMARY")
         logger.info("=" * 60)
-
         logger.info(f"Status: {result.status.value.upper()}")
         logger.info(f"Total rows: {result.total_rows}")
 
@@ -537,6 +532,22 @@ class MyfactoryImporter:
         except Exception as e:
             logger.error(f"Failed to list sheets: {e}")
             return []
+
+
+def get_next_record_id(session, table_name):
+    result = session.execute(
+        text("""
+            SET NOCOUNT ON;
+            DECLARE @id INT;
+            EXEC spwfGetNextRecordID
+                @sTable=:table_name,
+                @lRecordID=@id OUTPUT;
+            SELECT @id AS ProductID;
+        """),
+        {"table_name": table_name},
+    )
+
+    return result.scalar_one()
 
 
 # ========== Singleton Accessor ==========
