@@ -242,13 +242,13 @@ async function uploadFile() {
     const data = await response.json();
 
     if (response.ok) {
-      let html = '<div class="success">✅ Import completed successfully!</div>';
-      html += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+      let html = '<div class="success">Request sent successfully!</div>';
       resultDiv.innerHTML = html;
 
-      if (data.preview && data.preview.length) {
-        resultDiv.innerHTML += `<h5>Preview Data:</h5><pre>${JSON.stringify(data.preview, null, 2)}</pre>`;
-      }
+      // redirect to the audit details page after 5 seconds
+      setTimeout(() => {
+        window.location.href = `/imports/${data.import_id}`;
+      }, 5000);
     } else {
       let errorMsg = data.detail || 'Unknown error';
       if (typeof errorMsg === 'object') errorMsg = JSON.stringify(errorMsg, null, 2);
