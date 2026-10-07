@@ -1,20 +1,3 @@
-// ===== Connection Check =====
-async function checkConnection() {
-    const statusDiv = document.getElementById('connectionStatus');
-    if (!statusDiv) return;
-    try {
-        const resp = await fetch('/health');
-        const data = await resp.json();
-        if (data.configured) {
-            statusDiv.innerHTML = '<span style="color: green;">✅ Connected to database</span>';
-        } else {
-            statusDiv.innerHTML = '<span style="color: orange;">⚠️ Database not configured. Run setup first.</span>';
-        }
-    } catch {
-        statusDiv.innerHTML = '<span style="color: red;">❌ Cannot connect to API server</span>';
-    }
-}
-
 // ===== Toast Notification =====
 function showToast(title, message, type = 'info') {
     const container = document.querySelector('.toast-container') || (() => {
@@ -45,10 +28,3 @@ function showToast(title, message, type = 'info') {
     bsToast.show();
     toast.addEventListener('hidden.bs.toast', () => toast.remove());
 }
-
-// Auto-check connection on pages that have #connectionStatus
-document.addEventListener('DOMContentLoaded', () => {
-    if (document.getElementById('connectionStatus')) {
-        checkConnection();
-    }
-});
