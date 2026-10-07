@@ -154,10 +154,6 @@
     <div class="card-body p-0">
       <table class="table table-sm table-striped mb-0">
         <tbody>
-          <tr>
-            <th style="width: 220px;">Audit ID</th>
-            <td>#{{ audit.id }}</td>
-          </tr>
           {% if audit.import_id %}
           <tr>
             <th>Import ID (UUID)</th>
@@ -229,4 +225,12 @@
   </div>
 
 </div>
+{% endblock %}
+{% block scripts %}
+<script>
+  // Auto-refresh the page every 10 seconds
+  setTimeout(function() {
+    window.location.reload();
+  }, 10000);
+</script> 
 {% endblock %}
