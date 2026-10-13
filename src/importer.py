@@ -1,12 +1,13 @@
 """Core import logic for Myfactory with CSV/Excel parsing, batch insert, and audit logging."""
 
 import csv
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple, Union
 
 import pandas as pd
-from sqlalchemy import text
+from sqlalchemy import bindparam, text
 
 from src.config_manager import get_config_manager
 from src.db import get_db_manager, local_session, myfactory_session
@@ -140,18 +141,18 @@ class MyfactoryImporter:
             # 3. Apply mapping
             mapped_df = self._apply_mapping(df, mapping)
 
-            # 4. Validate schema
-            validated_df, errors = self._validate_schema(mapped_df)
-
-            # 5. Dry run or actual import
-            if config.dry_run:
-                result = self._dry_run(validated_df, mapping, audit_id)
+            # 5. validate step: to be implemented should return similar result data structure after validation
+            validated_df, result = self._validate_data(mapped_df, mapping)
+            if result.errors:
+                result.status = ImportStatus.FAILED
+            elif config.dry_run:
+                result.status = ImportStatus.DRY_RUN
             else:
                 result = self._perform_import(validated_df, config.batch_size, audit_id)
 
             # 6. Update audit
             result.audit_id = audit_id
-            self._update_audit(audit_id, result, errors)
+            self._update_audit(audit_id, result, result.errors)
 
             # 7. Log summary
             self._log_summary(result, config.dry_run)
@@ -169,7 +170,12 @@ class MyfactoryImporter:
                 )
                 if audit:
                     audit.status = ImportStatus.FAILED.value
-                    audit.error_message = str(e)
+                    audit.error_message = json.dumps(
+                        {
+                            "friendly": "Import failed. Please check the logs for details.",
+                            "technical": str(e),
+                        }
+                    )
                     audit.completed_at = datetime.utcnow()
 
             return ImportResultDTO(
@@ -290,49 +296,108 @@ class MyfactoryImporter:
 
         return df, available_sheets
 
-    def _apply_mapping(self, df: pd.DataFrame, mapping: Dict[str, str]) -> pd.DataFrame:
-        """Apply field mapping to DataFrame."""
-
+    def _apply_mapping(
+        self, df: pd.DataFrame, mapping: Dict[str, dict]
+    ) -> pd.DataFrame:
+        # Handle prepopulated values and missing source fields
         mapped_data = {}
-        for source_field, target_field in mapping.items():
+        for target_field, mapping_info in mapping.items():
+            prepopulated_value = mapping_info.get("prepopulated_value")
+            source_field = mapping_info.get("source_field")
             if source_field in df.columns:
+                df[source_field] = df[source_field].fillna(prepopulated_value)
                 mapped_data[target_field] = df[source_field]
-            else:
-                logger.warning(f"Source column '{source_field}' not found in file")
+            elif prepopulated_value:
+                mapped_data[target_field] = pd.Series(
+                    [prepopulated_value] * len(df), index=df.index
+                )
 
         if not mapped_data:
             raise ValueError(
                 "No columns could be mapped. Check your mapping configuration."
             )
 
-        mapped_df = pd.DataFrame(mapped_data)
+        df = pd.DataFrame(mapped_data)
+        # we drop all the columns with all NaN values after mapping
+        df.dropna(axis=1, how="all", inplace=True)
         logger.info(f"Mapped to {len(mapped_data)} columns: {list(mapped_data.keys())}")
+        return df
 
-        return mapped_df
-
-    def _validate_schema(self, df: pd.DataFrame) -> Tuple[pd.DataFrame, List[str]]:
-        """Validate DataFrame against target schema."""
+    def _validate_schema(
+        self, df: pd.DataFrame, mapping: Dict[str, dict]
+    ) -> Tuple[pd.DataFrame, List[Dict]]:
+        """Validate and coerce DataFrame columns to mapped data types."""
         errors = []
-        target_cols = self.get_target_columns()
+        for col in df.columns:
+            if col not in mapping:
+                continue
 
-        if "ProductNumber" not in df.columns:
-            errors.append(
-                "No ProductNumber column found - this is required for product identification"
-            )
+            mapping_info = mapping[col]
+            sql_type = mapping_info.get("data_type")
+            normalized_type = self._normalize_sql_type(sql_type)
 
-        valid_columns = [col for col in df.columns if col in target_cols]
-        invalid_columns = [col for col in df.columns if col not in target_cols]
+            try:
+                if normalized_type == "string":
+                    df[col] = df[col].astype(str)
+                elif normalized_type == "integer":
+                    df[col] = pd.to_numeric(df[col], errors="coerce").astype("Int64")
+                elif normalized_type == "decimal":
+                    df[col] = pd.to_numeric(df[col], errors="coerce")
+                elif normalized_type == "datetime":
+                    df[col] = pd.to_datetime(df[col], errors="coerce")
+            except Exception as e:
+                errors.append({"column": col, "reason": str(e)})
 
-        if invalid_columns:
-            logger.warning(f"Invalid columns (will be skipped): {invalid_columns}")
-
-        if not valid_columns:
-            raise ValueError("No valid columns found. Check your mapping.")
-
-        df = df[valid_columns]
-        logger.info(f"Validated {len(valid_columns)} columns: {valid_columns}")
-
+            # Capture rows with NaN after coercion (failed conversions)
+            nan_rows = df[df[col].isna()].index
+            for row_idx in nan_rows:
+                errors.append(
+                    {
+                        "row": row_idx,
+                        "column": col,
+                        "value": df.iloc[row_idx][col],
+                        "reason": f"Failed to coerce to {normalized_type}",
+                    }
+                )
         return df, errors
+
+    def _normalize_sql_type(self, sql_type: str) -> str:
+        """Normalize SQL type to category."""
+        sql_type = sql_type.upper()
+        if "VARCHAR" in sql_type or "TEXT" in sql_type:
+            return "string"
+        elif "INT" in sql_type:
+            return "integer"
+        elif "MONEY" in sql_type or "DECIMAL" in sql_type:
+            return "decimal"
+        elif "DATETIME" in sql_type or "DATE" in sql_type:
+            return "datetime"
+        return "string"
+
+    def _validate_data(
+        self, df: pd.DataFrame, mapping: Dict[str, dict]
+    ) -> ImportResultDTO:
+        """Validate data and return ImportResultDTO with errors if any."""
+        # call _validate_schema to validate data types and constraints.
+        df, schema_errors = self._validate_schema(df, mapping)
+        errors = schema_errors
+
+        # Additional data validation can be added here (e.g., required fields)
+
+        if errors:
+            logger.warning(f"Validation found {len(errors)} issues")
+            for err in errors:
+                logger.warning(f"  - {err}")
+
+        return df, ImportResultDTO(
+            status=ImportStatus.SUCCESS if not errors else ImportStatus.FAILED,
+            total_rows=len(df),
+            imported_rows=0,
+            failed_rows=0,
+            skipped_rows=0,
+            errors=errors,
+            log_file=logger.handlers[0].baseFilename if logger.handlers else "",
+        )
 
     def _perform_import(
         self, df: pd.DataFrame, batch_size: int, audit_id: str
@@ -351,40 +416,92 @@ class MyfactoryImporter:
             )
         total_rows = len(df)
         imported_rows = 0
+        inserted_count = 0
+        updated_count = 0
         failed_rows = 0
         errors = []
         records = df.to_dict("records")
+
+        # here the records are processed in batches
+        # first we check if a record already exists in the database based on ProductNumber,
+        # if it does we update it and log it as updated
         for i in range(0, total_rows, batch_size):
-            columns = list(records[0].keys())
+            insert_columns = list(records[0].keys()) + ["ProductID"]
+            update_columns = [
+                column
+                for column in records[0].keys()
+                if column not in {"ProductID", "ProductNumber"}
+            ]
+            insert_stmt = text(f"""
+                            INSERT INTO [{self.table_name}]
+                            ({", ".join(f"[{c}]" for c in insert_columns)})
+                            VALUES
+                            ({", ".join(f":{c}" for c in insert_columns)})
+                        """)
+            update_stmt = text(f"""
+                            UPDATE [{self.table_name}]
+                            SET {
+                                ", ".join(f"[{column}] = :{column}" for column in update_columns)
+                            }
+                            WHERE [ProductID] = :ProductID
+                        """)
             batch = records[i : i + batch_size]
+            product_numbers = [
+                row["ProductNumber"] for row in batch if row.get("ProductNumber")
+            ]
             batch_num = (i // batch_size) + 1
             try:
                 batch_with_ids = []
                 with myfactory_session() as session:
-                    for row in batch:
+                    existing = session.execute(
+                        text("""
+                            SELECT ProductID, ProductNumber
+                            FROM tdProducts
+                            WHERE ProductNumber IN :product_numbers
+                        """).bindparams(bindparam("product_numbers", expanding=True)),
+                        {"product_numbers": product_numbers},
+                    ).all()
+
+                    existing_by_number = {
+                        row.ProductNumber: row.ProductID for row in existing
+                    }
+                    to_insert = [
+                        row
+                        for row in batch
+                        if row["ProductNumber"] not in existing_by_number
+                    ]
+                    to_update = [
+                        {**row, "ProductID": existing_by_number[row["ProductNumber"]]}
+                        for row in batch
+                        if row["ProductNumber"] in existing_by_number
+                    ]
+                    for row in to_insert:
                         product_id = get_next_record_id(session, "tdProducts")
                         row["ProductID"] = product_id
                         batch_with_ids.append(row)
-                    columns = list(batch_with_ids[0].keys())
-                    stmt = text(f"""
-                        INSERT INTO [{self.table_name}]
-                        ({", ".join(f"[{c}]" for c in columns)})
-                        VALUES
-                        ({", ".join(f":{c}" for c in columns)})
-                    """)
-                    session.execute(stmt, batch_with_ids)
-                imported_rows += len(batch_with_ids)
+
+                    if batch_with_ids:
+                        session.execute(insert_stmt, batch_with_ids)
+                        inserted_count += len(batch_with_ids)
+
+                    if to_update:
+                        session.execute(update_stmt, to_update)
+                        updated_count += len(to_update)
+
+                imported_rows = inserted_count + updated_count
                 self._update_audit_progress(
                     audit_id=audit_id,
                     processed=imported_rows,
                     total=total_rows,
                 )
                 logger.info(
-                    f"✅ Batch {batch_num}: Inserted {len(batch_with_ids)} rows"
+                    f"✅ Batch {batch_num}: Inserted {inserted_count} Updated {updated_count} rows"
                 )
             except Exception as e:
                 logger.error(f"❌ Batch {batch_num} failed: {e}")
-                failed_rows += self._insert_rows_individually(batch, errors)
+                failed_rows += len(batch)
+                errors.append(f"Batch {batch_num} failed: {e}")
+
         status = (
             ImportStatus.SUCCESS if imported_rows == total_rows else ImportStatus.FAILED
         )
@@ -398,71 +515,6 @@ class MyfactoryImporter:
             log_file=logger.handlers[0].baseFilename if logger.handlers else "",
         )
 
-    def _insert_rows_individually(self, rows: List[Dict], errors: List[str]) -> int:
-        """Insert rows one by one (fallback for batch failure)."""
-        failed = 0
-        for row in rows:
-            try:
-                with myfactory_session() as session:
-                    product_id = get_next_record_id(session, "tdProducts")
-                    row["ProductID"] = product_id
-                    session.execute(
-                        text(
-                            f"INSERT INTO {self.table_name} ({', '.join(row.keys())}) "
-                            f"VALUES ({', '.join([':' + k for k in row.keys()])})"
-                        ),
-                        row,
-                    )
-            except Exception as e:
-                failed += 1
-                error_msg = f"Row failed: {row.get('ProductNumber', 'unknown')} - {e}"
-                errors.append(error_msg)
-                logger.warning(error_msg)
-
-        return failed
-
-    def _dry_run(
-        self, df: pd.DataFrame, mapping: Dict[str, str], audit_id: int
-    ) -> ImportResultDTO:
-        """Execute dry-run with preview."""
-
-        logger.info("=" * 60)
-        logger.info("🔍 DRY RUN MODE - No changes will be made")
-        logger.info("=" * 60)
-
-        logger.info(f"Mapping ({len(mapping)} fields):")
-        for source, target in mapping.items():
-            logger.info(f"  {source} → {target}")
-
-        logger.info(f"\nData preview ({len(df)} rows, {len(df.columns)} columns):")
-        if not df.empty:
-            preview_rows = min(10, len(df))
-            logger.info(f"First {preview_rows} rows:")
-            logger.info("\n" + df.head(preview_rows).to_string())
-
-        errors = []
-        for idx, row in df.iterrows():
-            if pd.isna(row.get("ProductNumber")):
-                errors.append(f"Row {idx}: Missing ProductNumber")
-
-        if errors:
-            logger.warning(f"Found {len(errors)} issues in data")
-
-        return ImportResultDTO(
-            status=ImportStatus.DRY_RUN,
-            total_rows=len(df),
-            imported_rows=0,
-            failed_rows=0,
-            skipped_rows=0,
-            errors=errors,
-            log_file=logger.handlers[0].baseFilename if logger.handlers else "",
-            details={
-                "preview_rows": df.head(10).to_dict("records") if not df.empty else [],
-                "columns": list(df.columns),
-                "mapping": mapping,
-            },
-        )
-
     def _update_audit(self, audit_id: int, result: ImportResultDTO, errors: List[str]):
         """Update audit record with import results."""
         with local_session() as session:
@@ -470,12 +522,22 @@ class MyfactoryImporter:
                 session.query(ImportAudit).filter(ImportAudit.id == audit_id).first()
             )
             if audit:
+                error_message = (
+                    json.dumps(
+                        {
+                            "friendly": "Import completed with errors. Please check the logs for details.",
+                            "technical": "; ".join(errors[:5]),
+                        }
+                    )
+                    if errors
+                    else None
+                )
                 audit.complete(
                     rows_processed=result.total_rows,
                     rows_succeeded=result.imported_rows,
                     rows_failed=result.failed_rows,
                     rows_skipped=result.skipped_rows,
-                    error_message="; ".join(errors[:5]) if errors else None,
+                    error_message=error_message,
                     details=result.details,
                 )
                 logger.debug(f"Audit {audit_id} updated")
