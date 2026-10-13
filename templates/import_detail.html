@@ -48,8 +48,17 @@
       </div>
       {% if audit.error_message %}
         <hr>
-        <pre class="mb-0 small" style="white-space:pre-wrap; word-break:break-word;">{{ audit.error_message }}</pre>
+        <div class="alert alert-danger mb-2">
+            <strong>{{ audit.error_message.friendly }}</strong>
+        </div>
+        <details>
+            <summary class="text-muted small">Show technical details</summary>
+            <pre class="mb-0 small mt-2" style="white-space:pre-wrap; word-break:break-word;">
+                {{ audit.error_message.technical }}
+            </pre>
+        </details>
       {% endif %}
+
     </div>
   {% elif status == 'running' %}
     <div class="alert alert-info d-flex align-items-center">
