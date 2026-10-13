@@ -71,6 +71,8 @@ class FieldMapper:
                         {
                             "source_field": m.get("source_field"),
                             "target_field": target_name,  # key is the target name
+                            "target_field_id": m.get("target_field_id"),
+                            "data_type": m.get("data_type"),
                             "is_mandatory": m.get("is_mandatory", False),
                             "is_db_required": m.get("is_db_required", False),
                             "is_active": m.get("is_active", True),
@@ -83,13 +85,9 @@ class FieldMapper:
 
     def get_mapping_dict(
         self, supplier_id: int, active_only: bool = True
-    ) -> Dict[str, str]:
+    ) -> Dict[str, Dict[str, Any]]:
         raw = self.get_mappings(supplier_id, active_only)
-        return {
-            m["source_field"]: m["target_field"]
-            for m in raw
-            if m.get("source_field") and m.get("target_field")
-        }
+        return {m["target_field"]: m for m in raw if m.get("target_field")}
 
     def mapping_name_exists(self, mapping_name: str) -> bool:
         """Check if a supplier has any mappings (lightweight with LIMIT 1)."""
