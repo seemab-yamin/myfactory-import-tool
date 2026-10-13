@@ -1,5 +1,6 @@
 """SQLAlchemy models for MyFactory Import Tool."""
 
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -10,7 +11,6 @@ from sqlalchemy import (
     DateTime,
     Integer,
     String,
-    Text,
     UniqueConstraint,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
@@ -196,7 +196,8 @@ class ImportAudit(Base):
     status: Mapped[str] = mapped_column(
         String(20), nullable=False, default=ImportStatus.PENDING.value
     )
-    error_message: Mapped[Optional[str]] = mapped_column(Text, nullable=True)
+    error_message: Mapped[Optional[dict]] = mapped_column(JSON, nullable=True)
+
     dry_run: Mapped[bool] = mapped_column(Boolean, default=False)
 
     started_at: Mapped[datetime] = mapped_column(
@@ -224,7 +225,9 @@ class ImportAudit(Base):
             "rows_failed": self.rows_failed,
             "rows_skipped": self.rows_skipped,
             "status": self.status,
-            "error_message": self.error_message,
+            "error_message": (
+                json.loads(self.error_message) if self.error_message else {}
+            ),
             "dry_run": self.dry_run,
             "started_at": self.started_at.isoformat() if self.started_at else None,
             "completed_at": (
