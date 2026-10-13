@@ -242,7 +242,7 @@ async function uploadFile() {
     const data = await response.json();
 
     if (response.ok) {
-      let html = '<div class="success">Request sent successfully!</div>';
+      let html = '<div class="success">Import started! Redirecting to audit details page...</div>';
       resultDiv.innerHTML = html;
 
       // redirect to the audit details page after 5 seconds
