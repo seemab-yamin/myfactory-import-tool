@@ -178,6 +178,9 @@ async def upload_file(
     # ============================================================
     # 3. DRY-RUN MODE (Synchronous)
     # ============================================================
+    import uuid
+
+    import_id = str(uuid.uuid4())
 
     if payload.dry_run:
         logger.info(f"Starting dry-run import for supplier_id={payload.supplier_id}")
@@ -190,6 +193,7 @@ async def upload_file(
                     "file_path": str(file_path),
                     "supplier_id": payload.supplier_id,
                     "dry_run": payload.dry_run,
+                    "import_id": import_id,
                     "batch_size": payload.batch_size,
                 },
                 header_row_index=payload.header_row_index,
@@ -211,6 +215,7 @@ async def upload_file(
                 "log_file": result.log_file,
                 "file_path": str(file_path),
                 "file_name": payload.file.filename,
+                "import_id": import_id,
                 "batch_size": payload.batch_size,
             }
         except Exception as e:
@@ -220,10 +225,6 @@ async def upload_file(
     # ============================================================
     # 4. BACKGROUND IMPORT
     # ============================================================
-
-    import uuid
-
-    import_id = str(uuid.uuid4())
     # ✅ Background task for full import
     background_tasks.add_task(
         run_import,
@@ -483,10 +484,11 @@ async def import_detail_page(request: Request, import_id: str):
         audit = session.query(ImportAudit).filter_by(import_id=import_id).first()
         if not audit:
             raise HTTPException(404, "Import not found")
+        audit = audit.to_dict()
         return templates.TemplateResponse(
             request,
             "import_detail.html",
-            {"request": request, "audit": audit.to_dict()},
+            {"request": request, "audit": audit},
         )
 
 
