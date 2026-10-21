@@ -593,6 +593,7 @@ class ConfigManager:
             f"Driver:        {s.db_driver}",
             f"Product Table:         {s.default_products_table}",
             f"Attribute Values Table: {s.default_attribute_values_table}",
+            f"Batch Size:    {s.default_batch_size}",
             f"Log Level:     {s.log_level}",
             "=" * 50,
         ]
