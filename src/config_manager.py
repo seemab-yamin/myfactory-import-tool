@@ -36,6 +36,7 @@ class AppSettings:
 
     # Import Settings
     default_products_table: str
+    default_attribute_values_table: str
 
     # Logging
     log_level: str = "INFO"
@@ -57,6 +58,7 @@ class AppSettings:
             "db_port": self.db_port,
             "db_connection_timeout": self.db_connection_timeout,
             "default_products_table": self.default_products_table,
+            "default_attribute_values_table": self.default_attribute_values_table,
             "log_level": self.log_level,
             "log_max_bytes": self.log_max_bytes,
             "log_backup_count": self.log_backup_count,
@@ -351,9 +353,25 @@ class ConfigManager:
                 else "tdProducts"
             )
 
-            table = input(f"Default product table [{default_products_table}]: ").strip()
-            config_data["default_products_table"] = table or default_products_table
+            product_table = input(
+                f"Default product table [{default_products_table}]: "
+            ).strip()
+            config_data["default_products_table"] = (
+                product_table or default_products_table
+            )
 
+            default_attribute_values_table = (
+                current.default_attribute_values_table
+                if current and current.default_attribute_values_table
+                else "tdAttributeValues"
+            )
+
+            attribute_values_table = input(
+                f"Default attribute values table [{default_attribute_values_table}]: "
+            ).strip()
+            config_data["default_attribute_values_table"] = (
+                attribute_values_table or default_attribute_values_table
+            )
             self._settings = AppSettings.from_dict(config_data)
             # 3. Validate and construct AppSettings
             valid, message = self._settings.validate()
@@ -573,7 +591,8 @@ class ConfigManager:
             f"Server:        {s.db_server}",
             f"Database:      {s.db_database}",
             f"Driver:        {s.db_driver}",
-            f"Table:         {s.default_products_table}",
+            f"Product Table:         {s.default_products_table}",
+            f"Attribute Values Table: {s.default_attribute_values_table}",
             f"Log Level:     {s.log_level}",
             "=" * 50,
         ]
