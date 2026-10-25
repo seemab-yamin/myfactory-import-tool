@@ -7,6 +7,7 @@
     "db_connection_timeout": 30,
     "default_products_table": "tdProducts",
     "default_attribute_values_table": "tdAttributeValues",
+    "products_entity_id": 2000,
     "default_batch_size": 1000,
     "log_level": "INFO",
     "log_max_bytes": 5000000,
