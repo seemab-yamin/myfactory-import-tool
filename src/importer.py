@@ -53,14 +53,12 @@ class MyfactoryImporter:
 
     def __init__(
         self,
-        table_name: str = "",
         batch_size: int = 1000,
         auto_fetch_mapping: bool = True,
     ):
         self.config = get_config_manager().get()
-        self.table_name = (
-            table_name if table_name else self.config.default_products_table
-        )
+        self.products_table = self.config.default_products_table
+        self.attribute_values_table = self.config.default_attribute_values_table
         self.auto_fetch_mapping = auto_fetch_mapping
         self.batch_size = batch_size or self.config.default_batch_size
         self.mapper = get_mapper()
@@ -70,7 +68,10 @@ class MyfactoryImporter:
     def get_target_columns(self) -> List[str]:
         """Get target columns from the database."""
         if self._target_columns is None:
-            columns = self.db_manager.get_table_columns(self.table_name, use_cache=True)
+            columns = self.db_manager.get_table_columns(
+                table_names=[self.products_table, self.attribute_values_table],
+                use_cache=True,
+            )
             self._target_columns = [col["name"] for col in columns]
         return self._target_columns
 
@@ -87,7 +88,8 @@ class MyfactoryImporter:
         supplier_id = config.supplier_id
         logger.info("=" * 60)
         logger.info(f"🚀 Starting import from: {config.file_path}")
-        logger.info(f"   Table: {self.table_name}")
+        logger.info(f"   Table: {self.products_table}")
+        logger.info(f"   Attribute Values Table: {self.attribute_values_table}")
         logger.info(f"   Dry run: {config.dry_run}")
         logger.info(f"   Batch size: {config.batch_size}")
         logger.info("=" * 60)
@@ -107,7 +109,7 @@ class MyfactoryImporter:
             supplier_name=config.supplier_name,
             file_path=config.file_path,
             import_id=config.import_id,
-            table_name=self.table_name,
+            products_table=self.products_table,
             dry_run=config.dry_run,
         )
         with local_session() as session:
@@ -125,12 +127,8 @@ class MyfactoryImporter:
             )
 
             # 2. Get mapping
-            if config.mapping:
-                mapping = config.mapping
-                logger.info(f"   Mapping source: DTO ({len(mapping)} fields)")
-            else:
-                mapping = self.mapper.get_mapping_dict(supplier_id, active_only=True)
-                logger.info(f"   Mapping source: DB ({len(mapping)} fields)")
+            mapping = self.mapper.get_mapping_dict(supplier_id, active_only=True)
+            logger.info(f"   Mapping source: DB ({len(mapping)} fields)")
 
             if not mapping:
                 raise ValueError(
@@ -296,12 +294,11 @@ class MyfactoryImporter:
 
         return df, available_sheets
 
-    def _apply_mapping(
-        self, df: pd.DataFrame, mapping: Dict[str, dict]
-    ) -> pd.DataFrame:
+    def _apply_mapping(self, df: pd.DataFrame, mapping) -> pd.DataFrame:
         # Handle prepopulated values and missing source fields
         mapped_data = {}
         for target_field, mapping_info in mapping.items():
+
             prepopulated_value = mapping_info.get("prepopulated_value")
             source_field = mapping_info.get("source_field")
             if source_field in df.columns:
@@ -374,9 +371,7 @@ class MyfactoryImporter:
             return "datetime"
         return "string"
 
-    def _validate_data(
-        self, df: pd.DataFrame, mapping: Dict[str, dict]
-    ) -> ImportResultDTO:
+    def _validate_data(self, df: pd.DataFrame, mapping) -> ImportResultDTO:
         """Validate data and return ImportResultDTO with errors if any."""
         # call _validate_schema to validate data types and constraints.
         df, schema_errors = self._validate_schema(df, mapping)
@@ -403,6 +398,9 @@ class MyfactoryImporter:
         self, df: pd.DataFrame, batch_size: int, audit_id: str
     ) -> ImportResultDTO:
         """Perform batch insert into database."""
+        # -------------------------------------------------------------------------
+        # 1. Validate input and initialize import state
+        # -------------------------------------------------------------------------
         if df.empty:
             logger.warning("No data to import")
             return ImportResultDTO(
@@ -414,105 +412,340 @@ class MyfactoryImporter:
                 errors=[],
                 log_file=logger.handlers[0].baseFilename if logger.handlers else "",
             )
+
         total_rows = len(df)
         imported_rows = 0
         inserted_count = 0
         updated_count = 0
         failed_rows = 0
         errors = []
+
+        # Convert DataFrame rows to dictionaries for batch processing.
         records = df.to_dict("records")
 
-        # here the records are processed in batches
-        # first we check if a record already exists in the database based on ProductNumber,
-        # if it does we update it and log it as updated
+        # -------------------------------------------------------------------------
+        # 2. Determine target columns from the imported data
+        # -------------------------------------------------------------------------
+        # Product columns are all mapped fields except attribute fields.
+        # Attribute columns are identified by the "Attr_" prefix.
+        pt_cols = [col for col in records[0] if not col.startswith("Attr_")]
+        avt_cols = [col for col in records[0] if col.startswith("Attr_")]
+
+        # ProductID is generated by the import process.
+        insert_pt_columns = pt_cols + ["ProductID"]
+
+        # RecordID links the attribute row back to the product.
+        # EntityID identifies the product entity in the attribute table.
+        avt_columns = avt_cols + ["RecordID", "EntityID"]
+
+        # ProductNumber is the business key used to find an existing product,
+        # so it must never be changed during an update.
+        update_pt_columns = [column for column in pt_cols if column != "ProductNumber"]
+
+        # All currently mapped attribute columns are eligible for update.
+        update_avt_columns = avt_cols[:]
+
+        # -------------------------------------------------------------------------
+        # 3. Build SQL statements used by each batch
+        # -------------------------------------------------------------------------
+        insert_pt_stmt = text(f"""
+            INSERT INTO [{self.products_table}]
+            ({", ".join(f"[{c}]" for c in insert_pt_columns)},
+            [CreationDate], [ChangeDate])
+            VALUES
+            ({", ".join(f":{c}" for c in insert_pt_columns)},
+            GETDATE(), GETDATE())
+        """)
+
+        insert_avt_stmt = text(f"""
+            INSERT INTO [{self.attribute_values_table}]
+            ({", ".join(f"[{c}]" for c in avt_columns)})
+            VALUES
+            ({", ".join(f":{c}" for c in avt_columns)})
+        """)
+
+        update_pt_stmt = text(f"""
+            UPDATE [{self.products_table}]
+            SET {
+                ", ".join(
+                    f"[{column}] = :{column}"
+                    for column in update_pt_columns
+                )
+            },
+            [ChangeDate] = GETDATE()
+            WHERE [ProductID] = :ProductID
+        """)
+
+        # Used to determine whether an attribute row already exists for
+        # an existing product.
+        select_avt_stmt = text(f"""
+            SELECT [RecordID], [EntityID]
+            FROM [{self.attribute_values_table}]
+            WHERE [RecordID] IN :record_ids
+            AND [EntityID] = :entity_id
+        """).bindparams(bindparam("record_ids", expanding=True))
+
+        # Used when an attribute row already exists.
+        update_avt_stmt = text(f"""
+            UPDATE [{self.attribute_values_table}]
+            SET {
+                ", ".join(
+                    f"[{column}] = :{column}"
+                    for column in update_avt_columns
+                )
+            }
+            WHERE [RecordID] = :RecordID
+            AND [EntityID] = :EntityID
+        """)
+
+        # -------------------------------------------------------------------------
+        # 4. Process records in batches
+        # -------------------------------------------------------------------------
         for i in range(0, total_rows, batch_size):
-            insert_columns = list(records[0].keys()) + ["ProductID"]
-            update_columns = [
-                column
-                for column in records[0].keys()
-                if column not in {"ProductID", "ProductNumber"}
-            ]
-            insert_stmt = text(f"""
-                            INSERT INTO [{self.table_name}]
-                            ({", ".join(f"[{c}]" for c in insert_columns)})
-                            VALUES
-                            ({", ".join(f":{c}" for c in insert_columns)})
-                        """)
-            update_stmt = text(f"""
-                            UPDATE [{self.table_name}]
-                            SET {
-                                ", ".join(f"[{column}] = :{column}" for column in update_columns)
-                            }
-                            WHERE [ProductID] = :ProductID
-                        """)
             batch = records[i : i + batch_size]
+            batch_num = (i // batch_size) + 1
+
+            # ProductNumber is used to determine whether each product is
+            # new or already exists in MSSQL.
             product_numbers = [
                 row["ProductNumber"] for row in batch if row.get("ProductNumber")
             ]
-            batch_num = (i // batch_size) + 1
+
             try:
-                batch_with_ids = []
+                # ---------------------------------------------------------------------
+                # Prepare containers for this batch
+                # ---------------------------------------------------------------------
+                pt_batch_with_ids = []
+                avt_batch_with_ids = []
+
                 with myfactory_session() as session:
-                    existing = session.execute(
-                        text("""
-                            SELECT ProductID, ProductNumber
-                            FROM tdProducts
-                            WHERE ProductNumber IN :product_numbers
+
+                    # -----------------------------------------------------------------
+                    # 1. Find existing products
+                    # -----------------------------------------------------------------
+                    # ProductNumber is the business key used to determine whether
+                    # each imported row should be inserted or updated.
+                    existing_products = session.execute(
+                        text(f"""
+                            SELECT [ProductID], [ProductNumber]
+                            FROM [{self.products_table}]
+                            WHERE [ProductNumber] IN :product_numbers
                         """).bindparams(bindparam("product_numbers", expanding=True)),
                         {"product_numbers": product_numbers},
                     ).all()
 
-                    existing_by_number = {
-                        row.ProductNumber: row.ProductID for row in existing
+                    existing_products_by_number = {
+                        row.ProductNumber: row.ProductID for row in existing_products
                     }
+
+                    # -----------------------------------------------------------------
+                    # 2. Split the batch into new and existing products
+                    # -----------------------------------------------------------------
+                    # Products not found by ProductNumber will be inserted.
                     to_insert = [
                         row
                         for row in batch
-                        if row["ProductNumber"] not in existing_by_number
+                        if row["ProductNumber"] not in existing_products_by_number
                     ]
-                    to_update = [
-                        {**row, "ProductID": existing_by_number[row["ProductNumber"]]}
+
+                    # Existing products will be updated.
+                    # ProductNumber itself is excluded from update_pt_columns,
+                    # so the business key is never changed.
+                    pt_to_update = [
+                        {
+                            key: value
+                            for key, value in row.items()
+                            if key in update_pt_columns
+                        }
+                        | {
+                            "ProductID": existing_products_by_number[
+                                row["ProductNumber"]
+                            ]
+                        }
                         for row in batch
-                        if row["ProductNumber"] in existing_by_number
+                        if row["ProductNumber"] in existing_products_by_number
                     ]
+
+                    avt_to_upsert = [
+                        {key: value for key, value in row.items() if key in avt_cols}
+                        | {
+                            "RecordID": existing_products_by_number[
+                                row["ProductNumber"]
+                            ],
+                            "EntityID": self.config.products_entity_id,
+                        }
+                        for row in batch
+                        if row["ProductNumber"] in existing_products_by_number
+                    ]
+
+                    # -----------------------------------------------------------------
+                    # 3. Find existing attribute rows for existing products
+                    # -----------------------------------------------------------------
+                    # Attribute rows are identified by:
+                    #   RecordID = ProductID
+                    #   EntityID = configured product entity
+                    record_ids = [row["ProductID"] for row in pt_to_update]
+
+                    existing_avt_records = []
+
+                    if record_ids:
+                        existing_avt_records = session.execute(
+                            select_avt_stmt,
+                            {
+                                "record_ids": record_ids,
+                                "entity_id": self.config.products_entity_id,
+                            },
+                        ).all()
+                    else:
+                        existing_avt_records = []
+
+                    existing_avt_record_ids = {
+                        row.RecordID for row in existing_avt_records
+                    }
+
+                    # -------------------------------------------------------------------------
+                    # 4. Prepare attribute rows for existing products that don't have one
+                    # -------------------------------------------------------------------------
+                    # An existing product may have been created directly in CRM without a
+                    # corresponding row in tdAttributeValues. In that case, create the
+                    # missing attribute row instead of attempting an UPDATE that affects 0 rows.
+                    avt_to_insert = [
+                        {key: value for key, value in row.items() if key in avt_cols}
+                        | {
+                            "RecordID": row["RecordID"],
+                            "EntityID": self.config.products_entity_id,
+                        }
+                        for row in avt_to_upsert
+                        if row["RecordID"] not in existing_avt_record_ids
+                    ]
+
+                    avt_to_update = [
+                        {key: value for key, value in row.items() if key in avt_cols}
+                        | {
+                            "RecordID": row["RecordID"],
+                            "EntityID": self.config.products_entity_id,
+                        }
+                        for row in avt_to_upsert
+                        if row["RecordID"] in existing_avt_record_ids
+                    ]
+
+                    # -------------------------------------------------------------------------
+                    # 5. Prepare new products and their attribute rows
+                    # -------------------------------------------------------------------------
                     for row in to_insert:
+                        # Generate the ProductID before inserting the product so the same ID
+                        # can be used as RecordID in tdAttributeValues.
                         product_id = get_next_record_id(session, "tdProducts")
-                        row["ProductID"] = product_id
-                        batch_with_ids.append(row)
 
-                    if batch_with_ids:
-                        session.execute(insert_stmt, batch_with_ids)
-                        inserted_count += len(batch_with_ids)
+                        # Product record
+                        pt_batch_with_ids.append(
+                            {key: value for key, value in row.items() if key in pt_cols}
+                            | {"ProductID": product_id}
+                        )
 
-                    if to_update:
-                        session.execute(update_stmt, to_update)
-                        updated_count += len(to_update)
+                        # Attribute record linked to the newly created product
+                        avt_batch_with_ids.append(
+                            {
+                                key: value
+                                for key, value in row.items()
+                                if key in avt_cols
+                            }
+                            | {
+                                "RecordID": product_id,
+                                "EntityID": self.config.products_entity_id,
+                            }
+                        )
 
+                    # -------------------------------------------------------------------------
+                    # 6. Insert new products and their attribute rows
+                    # -------------------------------------------------------------------------
+                    if pt_batch_with_ids:
+                        session.execute(insert_pt_stmt, pt_batch_with_ids)
+
+                        session.execute(insert_avt_stmt, avt_batch_with_ids)
+
+                        inserted_count += len(pt_batch_with_ids)
+
+                    # -------------------------------------------------------------------------
+                    # 7. Update existing products and their attribute rows
+                    # -------------------------------------------------------------------------
+                    if pt_to_update:
+                        # Update product fields for existing products.
+                        session.execute(
+                            update_pt_stmt,
+                            pt_to_update,
+                        )
+
+                        # Only process attributes when the current import contains
+                        # attribute mappings.
+                        if update_avt_columns:
+
+                            # Some existing products may not have an attribute row yet.
+                            # Create the missing rows first.
+                            if avt_to_insert:
+                                session.execute(
+                                    insert_avt_stmt,
+                                    avt_to_insert,
+                                )
+
+                            # Update attribute values for products that already have
+                            # an attribute row.
+                            if avt_to_update:
+                                session.execute(
+                                    update_avt_stmt,
+                                    avt_to_update,
+                                )
+
+                        updated_count += len(pt_to_update)
+
+                # -------------------------------------------------------------------------
+                # 8. Update import progress after the batch succeeds
+                # -------------------------------------------------------------------------
                 imported_rows = inserted_count + updated_count
+
                 self._update_audit_progress(
                     audit_id=audit_id,
                     processed=imported_rows,
                     total=total_rows,
                 )
+
                 logger.info(
-                    f"✅ Batch {batch_num}: Inserted {inserted_count} Updated {updated_count} rows"
+                    f"✅ Batch {batch_num}: "
+                    f"Inserted {inserted_count} | "
+                    f"Updated {updated_count}"
                 )
+            # -----------------------------------------------------------------
+            # Handle batch failure
+            # -----------------------------------------------------------------
             except Exception as e:
-                logger.error(f"❌ Batch {batch_num} failed: {e}")
+                logger.error(
+                    f"❌ Batch {batch_num} failed: {e}",
+                    exc_info=True,
+                )
+
+                # Mark every record in the failed batch as failed.
                 failed_rows += len(batch)
+
+                # Keep the error message for the final import result.
                 errors.append(f"Batch {batch_num} failed: {e}")
 
+        # -------------------------------------------------------------------------
+        # Build final import result
+        # -------------------------------------------------------------------------
+        # The import is successful only when every input row was processed.
         status = (
             ImportStatus.SUCCESS if imported_rows == total_rows else ImportStatus.FAILED
         )
+
         return ImportResultDTO(
             status=status,
             total_rows=total_rows,
             imported_rows=imported_rows,
             failed_rows=failed_rows,
             skipped_rows=0,
+            # Return only the first 10 errors to avoid an excessively large response.
             errors=errors[:10],
-            log_file=logger.handlers[0].baseFilename if logger.handlers else "",
+            log_file=(logger.handlers[0].baseFilename if logger.handlers else ""),
         )
 
     def _update_audit(self, audit_id: int, result: ImportResultDTO, errors: List[str]):
@@ -640,7 +873,7 @@ class MyfactoryImporter:
             return []
 
 
-def get_next_record_id(session, table_name):
+def get_next_record_id(session, products_table):
     result = session.execute(
         text("""
             SET NOCOUNT ON;
@@ -650,7 +883,7 @@ def get_next_record_id(session, table_name):
                 @lRecordID=@id OUTPUT;
             SELECT @id AS ProductID;
         """),
-        {"table_name": table_name},
+        {"table_name": products_table},
     )
 
     return result.scalar_one()
@@ -661,9 +894,9 @@ def get_next_record_id(session, table_name):
 _importer: Optional[MyfactoryImporter] = None
 
 
-def get_importer(table_name: str = "tdProducts") -> MyfactoryImporter:
+def get_importer() -> MyfactoryImporter:
     """Get or create the importer instance."""
     global _importer
     if _importer is None:
-        _importer = MyfactoryImporter(table_name)
+        _importer = MyfactoryImporter()
     return _importer

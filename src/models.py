@@ -3,7 +3,7 @@
 import json
 from datetime import datetime
 from pathlib import Path
-from typing import Any, Dict, List, Optional
+from typing import Any, Optional
 
 from sqlalchemy import (
     JSON,
@@ -33,7 +33,7 @@ class Supplier(Base):
     name: Mapped[str] = mapped_column(
         String(100), nullable=False, unique=True, index=True
     )
-    source_fields: Mapped[Optional[List[str]]] = mapped_column(
+    source_fields: Mapped[Optional[list[str]]] = mapped_column(
         JSON, nullable=True, default=[]
     )
     mappings: Mapped[JSON] = mapped_column(JSON, nullable=True, default={})
@@ -56,7 +56,7 @@ class Supplier(Base):
     def __repr__(self) -> str:
         return f"<Supplier(id={self.id}, name={self.name})>"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "name": self.name,
@@ -90,7 +90,7 @@ class SchemaChangeLog(Base):
     def __repr__(self) -> str:
         return f"<SchemaChangeLog(id={self.id}, checked_at={self.checked_at}, synced={self.suppliers_synced})>"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         return {
             "id": self.id,
             "checked_at": self.checked_at.isoformat() if self.checked_at else None,
@@ -127,7 +127,7 @@ class TargetField(Base):
     def __repr__(self) -> str:
         return f"<TargetField(table={self.table_name}, column={self.field_name}, type={self.data_type})>"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "id": self.id,
@@ -146,7 +146,7 @@ class TargetField(Base):
 
     @classmethod
     def from_inspector(
-        cls, table_name: str, field_info: Dict[str, Any]
+        cls, table_name: str, field_info: dict[str, Any]
     ) -> "TargetField":
         """Create a TargetField from SQLAlchemy inspector data."""
         return cls(
@@ -182,8 +182,11 @@ class ImportAudit(Base):
     supplier_name: Mapped[str] = mapped_column(String(100), nullable=False)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     file_path: Mapped[str] = mapped_column(String(500), nullable=False)
-    table_name: Mapped[str] = mapped_column(
+    products_table: Mapped[str] = mapped_column(
         String(100), nullable=False, default="tdProducts"
+    )
+    attribute_values_table: Mapped[str] = mapped_column(
+        String(100), nullable=False, default="tdAttributeValues"
     )
 
     rows_processed: Mapped[int] = mapped_column(Integer, default=0)
@@ -206,12 +209,12 @@ class ImportAudit(Base):
     completed_at: Mapped[Optional[datetime]] = mapped_column(DateTime, nullable=True)
 
     # Detailed logs (JSON)
-    details: Mapped[Optional[Dict[str, Any]]] = mapped_column(JSON, nullable=True)
+    details: Mapped[Optional[dict[str, Any]]] = mapped_column(JSON, nullable=True)
 
     def __repr__(self) -> str:
         return f"<ImportAudit(id={self.id}, supplier={self.supplier_name}, status={self.status})>"
 
-    def to_dict(self) -> Dict[str, Any]:
+    def to_dict(self) -> dict[str, Any]:
         """Convert to dictionary for serialization."""
         return {
             "id": self.id,
@@ -219,7 +222,8 @@ class ImportAudit(Base):
             "supplier_name": self.supplier_name,
             "file_name": self.file_name,
             "file_path": self.file_path,
-            "table_name": self.table_name,
+            "products_table": self.products_table,
+            "attribute_values_table": self.attribute_values_table,
             "rows_processed": self.rows_processed,
             "rows_succeeded": self.rows_succeeded,
             "rows_failed": self.rows_failed,
@@ -242,7 +246,8 @@ class ImportAudit(Base):
         supplier_name: str,
         file_path: str,
         import_id: Optional[str] = None,
-        table_name: str = "tdProducts",
+        products_table: str = "tdProducts",
+        attribute_values_table: str = "tdAttributeValues",
         dry_run: bool = False,
     ) -> "ImportAudit":
         """Create a new audit record for an import."""
@@ -251,7 +256,8 @@ class ImportAudit(Base):
             supplier_name=supplier_name,
             file_name=Path(file_path).name,
             file_path=str(file_path),
-            table_name=table_name,
+            products_table=products_table,
+            attribute_values_table=attribute_values_table,
             dry_run=dry_run,
             status=ImportStatus.RUNNING.value,
             started_at=datetime.utcnow(),
@@ -264,7 +270,7 @@ class ImportAudit(Base):
         rows_failed: int = 0,
         rows_skipped: int = 0,
         error_message: Optional[str] = None,
-        details: Optional[Dict[str, Any]] = None,
+        details: Optional[dict[str, Any]] = None,
     ):
         """Mark audit record as completed."""
         self.rows_processed = rows_processed

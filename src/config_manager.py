@@ -4,7 +4,7 @@ import getpass
 import json
 import os
 from dataclasses import MISSING, dataclass, fields
-from typing import Any, Dict, Optional, Tuple
+from typing import Any, Optional
 
 import keyring
 from dotenv import load_dotenv
@@ -38,6 +38,9 @@ class AppSettings:
     default_products_table: str
     default_attribute_values_table: str
 
+    # for tdAttributeValues table default products_entity_id to use when inserting new attribute values
+    products_entity_id: int = 2000
+
     # Logging
     log_level: str = "INFO"
     log_max_bytes: int = 10 * 1024 * 1024  # 10 MB
@@ -47,7 +50,7 @@ class AppSettings:
     app_name: str = "MyFactory Import Tool"
     app_version: str = "1.0.0"
 
-    def _to_dict(self) -> Dict[str, Any]:
+    def _to_dict(self) -> dict[str, Any]:
         """Convert settings to dictionary for JSON serialization."""
         return {
             "db_server": self.db_server,
@@ -59,6 +62,7 @@ class AppSettings:
             "db_connection_timeout": self.db_connection_timeout,
             "default_products_table": self.default_products_table,
             "default_attribute_values_table": self.default_attribute_values_table,
+            "products_entity_id": self.products_entity_id,
             "log_level": self.log_level,
             "log_max_bytes": self.log_max_bytes,
             "log_backup_count": self.log_backup_count,
@@ -67,7 +71,7 @@ class AppSettings:
         }
 
     @classmethod
-    def from_dict(cls, data: Dict[str, Any]) -> "AppSettings":
+    def from_dict(cls, data: dict[str, Any]) -> "AppSettings":
         """Create settings from configuration dictionary."""
 
         valid_fields = fields(cls)
@@ -111,7 +115,7 @@ class AppSettings:
             f"driver={self.db_driver}"
         )
 
-    def validate(self) -> Tuple[bool, str]:
+    def validate(self) -> tuple[bool, str]:
         """Validate settings."""
         if not self.db_server:
             return False, "Database server is required"
@@ -144,7 +148,7 @@ class ConfigManager:
     def _load(self):
         """Load and validate configuration."""
 
-        config_data: Dict[str, Any] = {}
+        config_data: dict[str, Any] = {}
 
         cdata = self._load_config_file()
 
@@ -170,7 +174,7 @@ class ConfigManager:
         if not valid:
             raise ValueError(f"Invalid configuration: {message}")
 
-    def _load_config_file(self) -> Dict[str, Any]:
+    def _load_config_file(self) -> dict[str, Any]:
         """Load settings from config.json."""
         if not self.config_path.exists():
             logger.warning(f"Config file not found: {self.config_path}")
@@ -191,7 +195,7 @@ class ConfigManager:
                 f"Could not load config file {self.config_path}: {e}"
             ) from e
 
-    def _load_env(self, config_data: Dict[str, Any]):
+    def _load_env(self, config_data: dict[str, Any]):
         """Load credentials from .env file."""
 
         if not self.env_path.exists():
@@ -216,7 +220,7 @@ class ConfigManager:
         except Exception as e:
             raise RuntimeError(f"Could not load .env file {self.env_path}: {e}") from e
 
-    def _load_keyring(self, config_data: Dict[str, Any]):
+    def _load_keyring(self, config_data: dict[str, Any]):
         """Load credentials from Windows Keyring."""
 
         if os.name != "nt":
@@ -252,7 +256,7 @@ class ConfigManager:
         return self._settings
 
     def interactive_setup(
-        self, config_data: Dict[str, Any], force: bool = False
+        self, config_data: dict[str, Any], force: bool = False
     ) -> bool:
         """Run interactive setup to configure credentials."""
 
@@ -358,6 +362,20 @@ class ConfigManager:
             ).strip()
             config_data["default_products_table"] = (
                 product_table or default_products_table
+            )
+            default_products_entity_id = (
+                current.products_entity_id
+                if current and current.products_entity_id
+                else 2000
+            )
+
+            products_entity_id = input(
+                f"Default products entity ID [{default_products_entity_id}]: "
+            ).strip()
+            config_data["products_entity_id"] = (
+                int(products_entity_id)
+                if products_entity_id
+                else default_products_entity_id
             )
 
             default_attribute_values_table = (
@@ -514,7 +532,7 @@ class ConfigManager:
 
     def get_credentials(
         self,
-    ) -> Tuple[Optional[str], Optional[str]]:
+    ) -> tuple[Optional[str], Optional[str]]:
         """Get credentials."""
         settings = self._require_settings()
 
@@ -592,6 +610,7 @@ class ConfigManager:
             f"Database:      {s.db_database}",
             f"Driver:        {s.db_driver}",
             f"Product Table:         {s.default_products_table}",
+            f"Products Entity ID: {s.products_entity_id}",
             f"Attribute Values Table: {s.default_attribute_values_table}",
             f"Batch Size:    {s.default_batch_size}",
             f"Log Level:     {s.log_level}",

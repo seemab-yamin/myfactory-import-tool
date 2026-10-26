@@ -26,10 +26,12 @@ from src.mapper import get_mapper
 from src.models import ImportAudit, SchemaChangeLog, Supplier
 from src.schemas.requests import ParseSample, SaveMappingsRequest, UploadRequest
 from src.services.schema_drift_service import SchemaDriftService
-from src.utils import get_file_path, save_file, save_file_temp, validate_file
+from src.utils import get_file_path, save_file, save_file_temp
 
 logger = get_logger(__name__)
-
+config = get_config_manager()
+settings = config.get()
+db = get_db_manager()
 router = APIRouter()
 
 # Templates
@@ -76,7 +78,12 @@ async def mappings_list_page(request: Request):
 
     try:
         with local_session() as session:
-            service = SchemaDriftService(session)
+            service = SchemaDriftService(
+                db,
+                session,
+                settings.default_products_table,
+                settings.default_attribute_values_table,
+            )
             schema_details = service.check_and_sync()
             schema_changed = bool(schema_details.get("has_changes"))
     except Exception as e:
@@ -158,7 +165,7 @@ async def add_mapping_page(request: Request):
 @router.get("/health")
 async def health():
     """Health check endpoint."""
-    config = get_config_manager()
+
     return {
         "status": "healthy",
         "configured": config.is_configured(),
@@ -185,9 +192,7 @@ async def upload_file(
     if payload.dry_run:
         logger.info(f"Starting dry-run import for supplier_id={payload.supplier_id}")
         try:
-            importer = get_importer(
-                table_name=get_config_manager().get().default_products_table,
-            )
+            importer = get_importer()
             result = importer.import_file(
                 config={
                     "file_path": str(file_path),
@@ -495,7 +500,7 @@ async def import_detail_page(request: Request, import_id: str):
 @router.post("/setup")
 async def run_setup():
     """Run interactive setup via API."""
-    config = get_config_manager()
+
     success = config.interactive_setup()
     if success:
         return {"status": "success", "message": "Setup completed successfully"}
@@ -519,20 +524,23 @@ async def api_schema(
 ):
     """Return JSON schema for the default table."""
 
-    config = get_config_manager()
-    default_products_table = config.get().default_products_table
-    db = get_db_manager()
+    default_products_table = settings.default_products_table
+    default_attribute_values_table = settings.default_attribute_values_table
 
     if refresh_cache:
         columns = db.get_table_columns(
-            sort_by=sort_by, table_name=default_products_table, use_cache=False
+            sort_by=sort_by,
+            table_names=[default_products_table, default_attribute_values_table],
+            use_cache=False,
         )
     else:
         columns = db.get_table_columns(
-            sort_by=sort_by, table_name=default_products_table, use_cache=True
+            sort_by=sort_by,
+            table_names=[default_products_table, default_attribute_values_table],
+            use_cache=True,
         )
     return {
-        "table_name": default_products_table,
+        "table_names": [default_products_table, default_attribute_values_table],
         "total_columns": len(columns),
         "columns": columns,
     }

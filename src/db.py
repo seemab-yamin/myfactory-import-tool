@@ -1,7 +1,8 @@
 """Database engine, session management, and connection handling."""
 
+import re
 from contextlib import contextmanager
-from typing import Any, Dict, Generator, List, Optional
+from typing import Any, Generator, Optional
 
 from sqlalchemy import create_engine, inspect, text
 from sqlalchemy.engine import Engine
@@ -237,20 +238,20 @@ class DatabaseManager:
             return False
 
     def get_live_columns_from_mssql(
-        self, table_name: str = "tdProducts"
-    ) -> List[Dict[str, Any]]:
+        self, table_names: list, schema="dbo"
+    ) -> list[TargetField]:
         """
         Fetch live column metadata directly from MSSQL.
 
         Read-only: does NOT touch SQLite cache.
 
         Returns:
-            List of dicts with keys:
+            list of dicts with keys:
                 name, type, nullable, default, max_length, is_identity
             Returns [] on failure.
         """
 
-        logger.info(f"🔍 Fetching live columns from MSSQL: table={table_name}")
+        logger.info(f"🔍 Fetching live columns from MSSQL: table={table_names}")
 
         engine = self._get_myfactory_engine()
         if engine is None:
@@ -259,32 +260,60 @@ class DatabaseManager:
 
         try:
             inspector = inspect(engine)
-            columns = inspector.get_columns(table_name)
-            logger.info(f"✅ Found {len(columns)} live columns in {table_name}")
+            result: list[dict[str, Any]] = []
+            for table_name in table_names:
+                logger.info(f"🔍 Inspecting table: {table_name}")
+                columns = inspector.get_columns(table_name, schema=schema)
+                logger.info(f"✅ Found {len(columns)} live columns in {table_name}")
+                for col in columns:
+                    column_type = col.get("type")
+                    # -------------------------------------------------------------------------
+                    # Extract max length
+                    # -------------------------------------------------------------------------
+                    max_length = col.get("length")
 
-            result: List[Dict[str, Any]] = []
-            for col in columns:
-                # Extract max_length from top-level or type object
-                max_length = col.get("length")
-                if max_length is None:
-                    try:
-                        max_length = getattr(col["type"], "length", None)
-                    except Exception:
-                        max_length = None
+                    if max_length is None:
+                        # SQLAlchemy MSSQL types such as NVARCHAR(30) normally expose .length.
+                        max_length = getattr(column_type, "length", None)
 
-                result.append(
-                    {
-                        "name": col["name"],
-                        "type": str(col["type"]),
-                        "nullable": col.get("nullable", True),
-                        "default": (
-                            str(col.get("default")) if col.get("default") else None
-                        ),
-                        "max_length": max_length,
-                        "is_identity": bool(col.get("autoincrement")),
-                    }
-                )
+                    if max_length is None:
+                        # Fallback: extract length from the rendered type string.
+                        # Example:
+                        #   NVARCHAR(30) COLLATE "SQL_Latin1_General_CP1_CI_AS" -> 30
+                        type_string = str(column_type)
 
+                        match = re.search(
+                            r"^(?:N?VARCHAR|CHAR|N?CHAR|VARBINARY|BINARY)\s*\(\s*(\d+)\s*\)",
+                            type_string,
+                            re.IGNORECASE,
+                        )
+
+                        if match:
+                            max_length = int(match.group(1))
+
+                    if table_name == "tdAttributeValues" and not col["name"].startswith(
+                        "Attr_"
+                    ):
+                        logger.info(
+                            f"🔍 Skipping non-attribute column: {col['name']} in {table_name}"
+                        )
+                        continue
+                    elif table_name == "tdProducts" and col["name"] == "ProductID":
+                        logger.info(
+                            f"🔍 Skipping system column: {col['name']} in {table_name}"
+                        )
+                        continue
+                    result.append(
+                        TargetField(
+                            table_name=table_name,
+                            field_name=col["name"],
+                            data_type=str(column_type),
+                            is_nullable=col.get("nullable", True),
+                            default_value=col.get("default"),
+                            is_identity=col.get("is_identity", False),
+                            max_length=max_length,
+                        )
+                    )
             return result
 
         except Exception as e:
@@ -293,10 +322,10 @@ class DatabaseManager:
 
     def get_table_columns(
         self,
-        table_name: str = "tdProducts",
+        table_names: str = ["tdProducts", "tdAttributeValues"],
         use_cache: bool = True,
         sort_by: str = "id",
-    ) -> List[Dict[str, Any]]:
+    ):
         """
         Get column information for a table from Myfactory database.
 
@@ -307,25 +336,25 @@ class DatabaseManager:
         # ✅ Step 1: Cache hit
         if use_cache:
             logger.info("🔍 Checking cache...")
-            cached = self._get_cached_columns(table_name, sort_by=sort_by)
+            cached = self._get_cached_columns(table_names, sort_by=sort_by)
             if cached:
                 return cached
             logger.info("🔍 No cached columns found")
 
         # ✅ Step 2: Fetch live from MSSQL (read-only, no cache write)
         logger.info("🔍 Fetching live columns from MSSQL...")
-        live_columns = self.get_live_columns_from_mssql(table_name)
+        live_columns = self.get_live_columns_from_mssql(table_names)
         if not live_columns:
             logger.warning("⚠️ No live columns returned")
             return self._get_fallback_columns()
 
         # ✅ Step 3: Persist to SQLite
         logger.info(f"🔍 Caching {len(live_columns)} columns to SQLite...")
-        self._cache_columns(table_name, live_columns)
+        self._cache_columns(table_names, live_columns)
 
         # ✅ Step 4: Read back from SQLite (with IDs)
         logger.info("🔍 Fetching cached columns with IDs...")
-        cached_with_ids = self._get_cached_columns(table_name, sort_by=sort_by)
+        cached_with_ids = self._get_cached_columns(table_names, sort_by=sort_by)
         if cached_with_ids:
             logger.info(
                 f"✅ Inserted and retrieved {len(cached_with_ids)} columns from SQLite with IDs"
@@ -336,9 +365,7 @@ class DatabaseManager:
         logger.warning("⚠️ SQLite cache fetch failed, returning MSSQL data without IDs")
         return live_columns
 
-    def _get_cached_columns(
-        self, table_name: str, sort_by: str = "id"
-    ) -> Optional[List[Dict[str, Any]]]:
+    def _get_cached_columns(self, table_names: list, sort_by: str = "id"):
         """Get cached columns from local database."""
 
         try:
@@ -346,7 +373,7 @@ class DatabaseManager:
                 logger.info("🔍 Querying TargetField table...")
                 columns = (
                     session.query(TargetField)
-                    .filter(TargetField.table_name == table_name)
+                    .filter(TargetField.table_name.in_(table_names))
                     .order_by(getattr(TargetField, sort_by))
                     .all()
                 )
@@ -355,6 +382,7 @@ class DatabaseManager:
                 if columns:
                     result = [
                         {
+                            "table_name": c.table_name,
                             "target_field_id": c.id,
                             "name": c.field_name,
                             "type": c.data_type,
@@ -371,37 +399,24 @@ class DatabaseManager:
             logger.error(f"❌ Could not get cached columns: {e}")
         return None
 
-    def _cache_columns(self, table_name: str, columns: List[Dict[str, Any]]) -> None:
+    def _cache_columns(self, table_names: str, columns: list[TargetField]) -> None:
         """Cache column information in local SQLite database."""
 
         try:
             with self.local_session() as session:
-                logger.info(f"🔍 Deleting existing cache for {table_name}...")
+                logger.info(f"🔍 Deleting existing cache for {table_names}...")
                 deleted = (
                     session.query(TargetField)
-                    .filter(TargetField.table_name == table_name)
+                    .filter(TargetField.table_name.in_(table_names))
                     .delete()
                 )
-                logger.info(f"🔍 Deleted {deleted} existing entries")
+                logger.info(f"🔍 Deleted {deleted} existing entries for {table_names}")
 
                 logger.info(f"🔍 Inserting {len(columns)} new entries...")
-                for col in columns:
-                    product_col = TargetField(
-                        table_name=table_name,
-                        field_name=col["name"],
-                        data_type=col["type"],
-                        is_nullable=col.get("nullable", True),
-                        is_identity=col.get("is_identity", False),
-                        max_length=col.get("max_length"),
-                        default_value=col.get("default"),
-                    )
+                for product_col in columns:
                     session.add(product_col)
-
                 session.commit()
-                logger.info(
-                    f"✅ Cached {len(columns)} columns for {table_name} in SQLite"
-                )
-
+                logger.info(f"✅ Cached {len(columns)} columns successfully")
         except Exception as e:
             logger.error(f"❌ Failed to cache columns: {e}")
 
@@ -426,30 +441,12 @@ class DatabaseManager:
             return None
         return config.get().db_database
 
-    def table_exists(self, table_name: str) -> bool:
-        """Check if a table exists in Myfactory database."""
-
-        engine = self._get_myfactory_engine()
-        if engine is None:
-            logger.warning("⚠️ Engine is None, returning False")
-            return False
-
-        try:
-            inspector = inspect(engine)
-            tables = inspector.get_table_names()
-            exists = table_name in tables
-            logger.info(f"✅ Table {table_name} exists: {exists}")
-            return exists
-        except Exception as e:
-            logger.error(f"❌ Failed to check table existence: {e}")
-            return False
-
     def execute_query(
         self,
         query: str,
-        params: Optional[Dict[str, Any]] = None,
+        params: Optional[dict[str, Any]] = None,
         fetch_one: bool = False,
-    ) -> List[Dict[str, Any]]:
+    ) -> list[dict[str, Any]]:
         """Execute a raw query on Myfactory database."""
 
         engine = self._get_myfactory_engine()
@@ -541,7 +538,7 @@ def test_connection() -> bool:
 
 def get_table_columns(
     table_name: str = "tdProducts", use_cache: bool = True
-) -> List[Dict[str, Any]]:
+) -> list[dict[str, Any]]:
     """Get columns for a table in Myfactory database."""
     return get_db_manager().get_table_columns(table_name, use_cache)
 

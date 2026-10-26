@@ -12,7 +12,6 @@ from src.importer import get_importer
 from src.logger import get_logger
 from src.mapper import get_mapper
 from src.schemas.dto import ImportStatus
-from src.schema_scanner import get_scanner
 
 logger = get_logger(__name__)
 
@@ -128,7 +127,6 @@ def create_parser():
     schema_parser.add_argument(
         "--show-all", action="store_true", help="Show all tables"
     )
-    schema_parser.set_defaults(func=cli_schema)
 
     return parser
 
@@ -290,55 +288,3 @@ def cli_export_mappings(args):
         print(f"✅ Mappings exported to: {args.output}")
     else:
         print(json.dumps(output, indent=2))
-
-
-def cli_schema(args):
-    """Show table schema with rich formatting."""
-
-    try:
-        from rich import box
-        from rich.console import Console
-        from rich.table import Table
-    except ImportError:
-        print("❌ 'rich' package not installed. Run: pip install rich")
-        sys.exit(1)
-
-    console = Console()
-    scanner = get_scanner()
-
-    if args.refresh:
-        scanner.refresh_cache(args.table)
-        console.print(f"[green]✅ Cache refreshed for {args.table}[/green]")
-        return
-
-    if args.show_all:
-        tables_to_scan = ["tdProducts"]
-    else:
-        tables_to_scan = [args.table]
-
-    for table_name in tables_to_scan:
-        if not scanner.table_exists(table_name):
-            console.print(f"[yellow]⚠️ Table '{table_name}' not found[/yellow]")
-            continue
-
-        columns = scanner.get_table_schema(table_name)
-        table = Table(
-            title=f"[bold cyan]📊 Schema: {table_name}[/bold cyan]",
-            box=box.HEAVY,
-            border_style="bright_blue",
-            show_header=True,
-            header_style="bold magenta",
-        )
-        table.add_column("#", style="dim", width=4)
-        table.add_column("Column Name", style="green", min_width=25)
-        table.add_column("Data Type", style="yellow", min_width=20)
-        table.add_column("Nullable", style="cyan", width=10)
-
-        for idx, col in enumerate(columns, 1):
-            nullable = "YES" if col.get("nullable", True) else "NO"
-            table.add_row(str(idx), col.get("name", ""), col.get("type", ""), nullable)
-
-        console.print("\n")
-        console.print(table)
-        console.print(f"[dim]Total: {len(columns)} columns[/dim]")
-        console.print("\n" + "─" * 80 + "\n")

@@ -79,7 +79,6 @@ class FieldMapper:
                             "prepopulated_value": m.get("prepopulated_value"),
                         }
                     )
-
             self._cache[cache_key] = mappings
             return mappings
 
@@ -707,7 +706,9 @@ def sync_supplier_json(
     mappings = dict(supplier.mappings or {})
     mutated = False
 
+    # -------------------------------------------------------------------------
     # 1. Removed fields
+    # -------------------------------------------------------------------------
     for field in removed:
         name = field.field_name
 
@@ -715,41 +716,71 @@ def sync_supplier_json(
             del mappings[name]
             mutated = True
 
+    # -------------------------------------------------------------------------
     # 2. Added fields
+    # -------------------------------------------------------------------------
     for field in added:
         name = field.field_name
 
         mappings[name] = {
+            "target_field_name": field.field_name,
+            "target_field_id": field.id,
             "data_type": field.data_type,
             "max_length": field.max_length,
             "is_nullable": field.is_nullable,
             "is_identity": field.is_identity,
+            "is_active": True,
+            "is_mandatory": False,
+            "is_db_required": not field.is_nullable,
+            "prepopulated_value": "",
         }
+
         mutated = True
 
+    # -------------------------------------------------------------------------
     # 3. Changed fields
+    #
+    # The new schema is authoritative for schema-related properties.
+    # Preserve only supplier/mapping-specific configuration.
+    # -------------------------------------------------------------------------
     for change in changed:
         name = change["field_name"]
         new_field = change["new"]
 
         old_mapping = mappings.get(name)
+
+        # If there is no existing mapping, create it from the new schema.
         if old_mapping is None:
+            mappings[name] = {
+                "target_field_name": new_field.field_name,
+                "target_field_id": new_field.id,
+                "data_type": new_field.data_type,
+                "max_length": new_field.max_length,
+                "is_nullable": new_field.is_nullable,
+                "is_identity": new_field.is_identity,
+                "is_active": True,
+                "is_mandatory": False,
+                "is_db_required": not new_field.is_nullable,
+                "prepopulated_value": "",
+            }
+            mutated = True
             continue
 
+        # Preserve only values controlled by the supplier/user mapping.
         preserved_mapping = {
             key: value
             for key, value in old_mapping.items()
             if key
-            not in {
-                "target_field_name",
-                "target_field_id",
-                "data_type",
-                "max_length",
-                "is_nullable",
-                "is_identity",
+            in {
+                "source_field",
+                "is_active",
+                "is_mandatory",
+                "is_db_required",
+                "prepopulated_value",
             }
         }
 
+        # Replace all schema-derived values with the latest schema values.
         mappings[name] = {
             **preserved_mapping,
             "target_field_name": new_field.field_name,
@@ -762,6 +793,9 @@ def sync_supplier_json(
 
         mutated = True
 
+    # -------------------------------------------------------------------------
+    # 4. Save changes
+    # -------------------------------------------------------------------------
     if not mutated:
         return False
 

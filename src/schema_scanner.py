@@ -5,7 +5,7 @@ SQLite persistence (TargetField table) is the single source of truth.
 No in-process Python cache — avoids stale data across processes.
 """
 
-from typing import Any, Dict, List, Optional
+from typing import Optional
 
 from src.db import get_db_manager, local_session
 from src.logger import get_logger
@@ -19,107 +19,6 @@ class SchemaScanner:
 
     def __init__(self):
         self.db = get_db_manager()
-
-    def get_table_schema(
-        self,
-        table_name: str = "tdProducts",
-        use_cache: bool = True,
-        sort_by: Optional[str] = None,
-    ) -> List[Dict[str, Any]]:
-        """
-        Get full schema information for a table.
-
-        Args:
-            table_name: Table to scan
-            use_cache:  If True, read from SQLite (TargetField). If False, read live from MSSQL.
-            sort_by:    Optional key to sort by
-
-        Returns:
-            List of column dicts
-        """
-
-        try:
-            columns = self.db.get_table_columns(table_name, use_cache)
-            if not columns:
-                return []
-
-            if sort_by and sort_by in columns[0]:
-                columns.sort(key=lambda x: x[sort_by])
-
-            logger.info(f"Scanned {len(columns)} columns from {table_name}")
-            return columns
-        except Exception as e:
-            logger.error(f"Failed to scan schema for {table_name}: {e}")
-            return []
-
-    def get_live_schema_as_target_fields(
-        self,
-        table_name: str = "tdProducts",
-    ) -> List[TargetField]:
-        """
-        Fetch live schema from MSSQL as TargetField objects.
-
-        Read-only: does NOT write to SQLite.
-
-        Returns [] on failure so callers can short-circuit gracefully.
-        """
-
-        try:
-            raw_columns = self.db.get_live_columns_from_mssql(table_name)
-            if not raw_columns:
-                logger.warning(f"No live columns returned for {table_name}")
-                return []
-
-            return [
-                TargetField(
-                    table_name=table_name,
-                    field_name=col["name"],
-                    data_type=col["type"],
-                    max_length=col.get("max_length"),
-                    is_nullable=col.get("nullable", True),
-                    is_identity=col.get("is_identity", False),
-                    default_value=col.get("default"),
-                )
-                for col in raw_columns
-            ]
-        except Exception as e:
-            logger.error(f"Failed to fetch live {table_name} schema: {e}")
-            return []
-
-    def get_column_types(self, table_name: str = "tdProducts") -> Dict[str, str]:
-        """Get mapping of column name -> data type."""
-        columns = self.get_table_schema(table_name)
-        return {col.get("name", ""): col.get("type", "") for col in columns}
-
-    def table_exists(self, table_name: str) -> bool:
-        """Check if a table exists."""
-        return self.db.table_exists(table_name)
-
-    def get_schema_summary(self, table_name: str = "tdProducts") -> Dict[str, Any]:
-        """Get a summary of the table schema."""
-        columns = self.get_table_schema(table_name)
-
-        if not columns:
-            return {
-                "table_name": table_name,
-                "exists": False,
-                "total_columns": 0,
-                "columns": [],
-            }
-
-        return {
-            "table_name": table_name,
-            "exists": True,
-            "total_columns": len(columns),
-            "columns": [
-                {
-                    "name": col.get("name"),
-                    "type": col.get("type"),
-                    "nullable": col.get("nullable", True),
-                }
-                for col in columns
-            ],
-        }
 
 
 # ========== Singleton Accessor ==========
@@ -138,18 +37,8 @@ def get_scanner() -> SchemaScanner:
 # ========== Convenience Functions ==========
 
 
-def get_table_schema(table_name: str = "tdProducts") -> List[Dict[str, Any]]:
-    return get_scanner().get_table_schema(table_name)
-
-
-def get_live_schema_as_target_fields(
-    table_name: str = "tdProducts",
-) -> List[TargetField]:
-    return get_scanner().get_live_schema_as_target_fields(table_name)
-
-
 def compare_schemas(
-    cached_fields: List[TargetField], live_fields: List[TargetField]
+    cached_fields: list[TargetField], live_fields: list[TargetField]
 ) -> dict:
     """
     Compare cached (SQLite) vs live (MSSQL) schema for a table.
@@ -264,7 +153,8 @@ def _base_type(data_type: str) -> str:
 
 
 def detect_and_log_schema_changes(
-    table_name: str = "tdProducts",
+    products_table: str = "tdProducts",
+    attribute_values_table: str = "tdAttributeValues",
     apply_sync: bool = True,
 ) -> dict:
     """
@@ -277,7 +167,8 @@ def detect_and_log_schema_changes(
     with local_session() as session:
         service = SchemaDriftService(
             db_session=session,
-            table_name=table_name,
+            products_table=products_table,
+            attribute_values_table=attribute_values_table,
             apply_sync=apply_sync,
         )
         return service.check_and_sync()

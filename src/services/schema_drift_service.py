@@ -6,10 +6,11 @@ the internal steps.
 """
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List
+from typing import Any
 
 from sqlalchemy.orm import Session
 
+from src.db import DatabaseManager
 from src.logger import get_logger
 from src.models import SchemaChangeLog, TargetField
 
@@ -21,36 +22,46 @@ class SchemaDriftService:
 
     def __init__(
         self,
+        db: DatabaseManager,
         db_session: Session,
-        table_name: str = "tdProducts",
+        products_table: str,
+        attribute_values_table: str,
         apply_sync: bool = True,
     ) -> None:
         if db_session is None:
             raise ValueError("SchemaDriftService requires a non-None db_session")
 
-        self.db = db_session
-        self.table_name = table_name
+        self.db = db
+        self.db_session = db_session
         self.apply_sync = apply_sync
+        self.products_table = products_table
+        self.attribute_values_table = attribute_values_table
 
     # ------------------------------------------------------------
     # Public API
     # ------------------------------------------------------------
-    def check_and_sync(self) -> Dict[str, Any]:
+    def check_and_sync(self) -> dict[str, Any]:
         from src.mapper import sync_all_suppliers
-        from src.schema_scanner import compare_schemas, get_live_schema_as_target_fields
+        from src.schema_scanner import compare_schemas
 
         now = datetime.now(timezone.utc)
 
         # ---- 1. Live schema ----
-        live = get_live_schema_as_target_fields(self.table_name)
+        live = self.db.get_live_columns_from_mssql(
+            [self.products_table, self.attribute_values_table]
+        )
         if not live:
             logger.warning("Drift check: live schema empty — MSSQL unreachable?")
             return self._empty_result(now, reason="live_schema_empty")
 
         # ---- 2. Cached schema ----
         cached = (
-            self.db.query(TargetField)
-            .filter(TargetField.table_name == self.table_name)
+            self.db_session.query(TargetField)
+            .filter(
+                TargetField.table_name.in_(
+                    [self.products_table, self.attribute_values_table]
+                )
+            )
             .all()
         )
         if not cached:
@@ -74,16 +85,18 @@ class SchemaDriftService:
         ]
         changed_snapshot = diff["changed"]
 
-        # ---- 4. Sync suppliers ----
-        suppliers_synced = 0
-        if self.apply_sync and (removed_snapshot or added_snapshot or changed_snapshot):
-            suppliers_synced = sync_all_suppliers(diff, self.db)
-
-        # ---- 5. Refresh cache (destructive) ----
+        # ---- 4. Refresh cache first ----
         if self.apply_sync:
-            self._refresh_target_field_cache(live)
+            diff["added"] = self._refresh_target_field_cache(live)
         else:
             logger.info("Drift check: apply_sync=False — cache not refreshed")
+        # ---- 5. Sync suppliers ----
+        suppliers_synced = 0
+        if self.apply_sync and (removed_snapshot or added_snapshot or changed_snapshot):
+            suppliers_synced = sync_all_suppliers(
+                diff,
+                self.db_session,
+            )
 
         # ---- 6. Write log using SNAPSHOT (not diff objects) ----
         log = SchemaChangeLog(
@@ -98,14 +111,14 @@ class SchemaDriftService:
                 f"synced={suppliers_synced}"
             ),
         )
-        self.db.add(log)
-        self.db.flush()
+        self.db_session.add(log)
+        self.db_session.flush()
         log_id = log.id
 
         try:
-            self.db.commit()
+            self.db_session.commit()
         except Exception:
-            self.db.rollback()
+            self.db_session.rollback()
             raise
 
         logger.info(
@@ -116,7 +129,8 @@ class SchemaDriftService:
 
         return {
             "checked_at": now.isoformat(),
-            "table_name": self.table_name,
+            "products_table": self.products_table,
+            "attribute_values_table": self.attribute_values_table,
             "has_changes": True,
             "added_count": len(added_snapshot),
             "removed_count": len(removed_snapshot),
@@ -132,33 +146,50 @@ class SchemaDriftService:
     # ------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------
-    def _refresh_target_field_cache(self, live) -> None:
-        self.db_session.query(TargetField).filter(
-            TargetField.table_name.in_(
-                [self.products_table, self.attribute_values_table]
-            )
-        ).delete(synchronize_session=False)
-        self.db_session.flush()  # ✅ Execute DELETE before INSERTing new rows
+    def _refresh_target_field_cache(
+        self,
+        live: list[TargetField],
+    ) -> list[TargetField]:
+        tables = [
+            self.products_table,
+            self.attribute_values_table,
+        ]
 
-        for f in live:
-            self.db_session.add(
-                TargetField(
-                    table_name=f.table_name,
-                    field_name=f.field_name,
-                    data_type=f.data_type,
-                    max_length=f.max_length,
-                    is_nullable=f.is_nullable,
-                    is_identity=f.is_identity,
-                    default_value=f.default_value,
-                )
-            )
+        # Remove existing cached schema.
+        self.db_session.query(TargetField).filter(
+            TargetField.table_name.in_(tables)
+        ).delete(synchronize_session="fetch")
+
         self.db_session.flush()
 
-    def _empty_result(self, now: datetime, reason: str) -> Dict[str, Any]:
+        # Insert current live schema.
+        persisted_fields = []
+
+        for field in live:
+            cached_field = TargetField(
+                table_name=field.table_name,
+                field_name=field.field_name,
+                data_type=field.data_type,
+                max_length=field.max_length,
+                is_nullable=field.is_nullable,
+                is_identity=field.is_identity,
+                default_value=field.default_value,
+            )
+
+            self.db_session.add(cached_field)
+            persisted_fields.append(cached_field)
+
+        # Flush so database-generated IDs are populated.
+        self.db_session.flush()
+
+        return persisted_fields
+
+    def _empty_result(self, now: datetime, reason: str) -> dict[str, Any]:
         """Uniform empty result shape for short-circuit paths."""
         return {
             "checked_at": now.isoformat(),
-            "table_name": self.table_name,
+            "products_table": self.products_table,
+            "attribute_values_table": self.attribute_values_table,
             "has_changes": False,
             "added_count": 0,
             "removed_count": 0,
