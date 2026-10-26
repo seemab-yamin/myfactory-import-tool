@@ -15,7 +15,7 @@ from src.models import (
     Supplier,
     TargetField,
 )
-from src.paths import BASE_DIR
+from src.paths import PROJECT_DIR
 from src.schema_scanner import (
     SchemaScanner,
     get_scanner,
@@ -24,7 +24,7 @@ from src.schemas.dto import ImportStatus
 from src.utils import get_file_path, save_file, save_file_temp, validate_file
 
 __all__ = [
-    "BASE_DIR",
+    "PROJECT_DIR",
     "ConfigManager",
     "get_scanner",
     "get_config_manager",

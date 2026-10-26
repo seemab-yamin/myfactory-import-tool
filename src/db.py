@@ -11,12 +11,12 @@ from sqlalchemy.orm import Session, sessionmaker
 from src.config_manager import get_config_manager
 from src.logger import get_logger
 from src.models import TargetField
-from src.paths import BASE_DIR
+from src.paths import PROJECT_DIR
 
 logger = get_logger(__name__)
 
 # App data directory (for local SQLite DB)
-LOCAL_DB_DIR = BASE_DIR / "data"
+LOCAL_DB_DIR = PROJECT_DIR / "data"
 LOCAL_DB_PATH = LOCAL_DB_DIR / "mappings.db"
 LOCAL_DB_URL = f"sqlite:///{LOCAL_DB_PATH}"
 

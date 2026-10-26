@@ -10,13 +10,13 @@ import keyring
 from dotenv import load_dotenv
 
 from src.logger import setup_logger
-from src.paths import BASE_DIR
+from src.paths import PROJECT_DIR
 
 logger = setup_logger(__name__)
 
 # Constants
 KEYRING_SERVICE = "myfactory_import"
-CONFIG_DIR = BASE_DIR / "config"
+CONFIG_DIR = PROJECT_DIR / "config"
 CONFIG_PATH = CONFIG_DIR / "config.json"
 ENV_PATH = CONFIG_DIR / ".env"
 

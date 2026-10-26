@@ -5,12 +5,12 @@ import logging
 import sys
 from datetime import datetime
 from logging.handlers import RotatingFileHandler
-from typing import Any, Dict, Optional
+from typing import Any, Optional
 
-from src.paths import BASE_DIR
+from src.paths import PROJECT_DIR
 
 # Constants
-LOG_DIR = BASE_DIR / "logs"
+LOG_DIR = PROJECT_DIR / "logs"
 
 
 class JSONFormatter(logging.Formatter):
@@ -158,7 +158,7 @@ def setup_logger(
 class LoggerManager:
     """Singleton logger manager for consistent logging across modules."""
 
-    _instances: Dict[str, logging.Logger] = {}
+    _instances: dict[str, logging.Logger] = {}
     _initialized = False
     _default_logger: Optional[logging.Logger] = None
 
@@ -194,10 +194,10 @@ class LoggerManager:
 class LoggerAdapter(logging.LoggerAdapter):
     """Logger adapter for adding extra context to logs."""
 
-    def __init__(self, logger: logging.Logger, extra: Optional[Dict[str, Any]] = None):
+    def __init__(self, logger: logging.Logger, extra: Optional[dict[str, Any]] = None):
         super().__init__(logger, extra or {})
 
-    def process(self, msg: str, kwargs: Dict[str, Any]) -> tuple:
+    def process(self, msg: str, kwargs: dict[str, Any]) -> tuple:
         """Add extra context to log messages."""
         if self.extra:
             msg = f"[{self.extra}] {msg}"
