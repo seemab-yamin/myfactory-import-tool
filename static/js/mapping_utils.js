@@ -36,6 +36,30 @@ const sheetSelectorRow = document.getElementById('sheetSelectorRow');
  */
 
 // ============================================================
+// FETCH TARGET SCHEMA
+// ============================================================
+async function fetchTargetSchema(refreshCache = false) {
+    try {
+        const url = '/api/schema?refresh_cache=' + refreshCache + '&sort_by=id';
+        const response = await fetch(url);
+        if (!response.ok) throw new Error('Failed to fetch schema');
+        const data = await response.json();
+
+        targetColumns = data.columns || [];
+
+        mandatoryFields = targetColumns
+            .filter(c => c.nullable === false)
+            .map(c => c.target_field_id);
+
+        return targetColumns;
+    } catch (e) {
+        console.error('Error fetching schema:', e);
+        showToast('Error', 'Failed to load product schema', 'danger');
+        return [];
+    }
+}
+
+// ============================================================
 // GET PAGE DATA (from show_mapping.html)
 // ============================================================
 
@@ -354,7 +378,6 @@ async function handleFileChange() {
 // ============================================================
 function buildMappingUI(targetCols, fileCols) {
     const tbody = document.getElementById('mappingTableBody');
-    console.log(`Building mapping UI with ${targetCols.length} target columns and ${fileCols.length} source columns`);
     mappingArea.style.display = 'block';
     noFileMessage.style.display = 'none';
 
@@ -788,7 +811,6 @@ async function saveMappings() {
     }
 
     const isNew = isNewSupplierPage();
-    // TODO
     // ============================================================
     // Step 10: Build payload
     // ============================================================

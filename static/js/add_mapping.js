@@ -215,7 +215,9 @@ function checkSupplierName() {
  * Wrapper: reads DOM inputs, calls parseFileOnly(), applies UI effects
  * via parseRender(), then updates mapping UI + status + step state.
  */
-async function parseSampleFile() {
+async function parseSampleFile(refreshCache = false) {
+    await fetchTargetSchema(refreshCache);
+
     const statusDiv = document.getElementById('parseStatus');
 
     statusDiv.innerHTML = '<span class="text-info">⏳ Uploading & parsing...</span>';
@@ -245,32 +247,6 @@ async function parseSampleFile() {
         updateStepStates();
     }
 }
-
-// ============================================================
-// FETCH TARGET SCHEMA
-// ============================================================
-async function fetchTargetSchema() {
-    try {
-        const response = await fetch('/api/schema');
-        if (!response.ok) throw new Error('Failed to fetch schema');
-        const data = await response.json();
-
-        const allColumns = data.columns || data.tdProducts || [];
-        const excluded = ['ProductID'];
-        targetColumns = allColumns.filter(c => !excluded.includes(c.name));
-
-        mandatoryFields = targetColumns
-            .filter(c => c.nullable === false)
-            .map(c => c.target_field_id);
-
-        return targetColumns;
-    } catch (e) {
-        console.error('Error fetching schema:', e);
-        showToast('Error', 'Failed to load product schema', 'danger');
-        return [];
-    }
-}
-
 
 // ============================================================
 // AUTO-MAP FIELDS
@@ -478,7 +454,6 @@ function resetForm() {
 // INIT
 // ============================================================
 document.addEventListener('DOMContentLoaded', async function () {
-    await fetchTargetSchema();
     await fetchAllSuppliers();
 
     if (supplierNameInput) {

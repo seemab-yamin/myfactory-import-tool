@@ -132,16 +132,18 @@ class SchemaDriftService:
     # ------------------------------------------------------------
     # Internals
     # ------------------------------------------------------------
-    def _refresh_target_field_cache(self, live: List[TargetField]) -> None:
-        self.db.query(TargetField).filter(
-            TargetField.table_name == self.table_name
+    def _refresh_target_field_cache(self, live) -> None:
+        self.db_session.query(TargetField).filter(
+            TargetField.table_name.in_(
+                [self.products_table, self.attribute_values_table]
+            )
         ).delete(synchronize_session=False)
-        self.db.flush()  # ✅ Execute DELETE before INSERTing new rows
+        self.db_session.flush()  # ✅ Execute DELETE before INSERTing new rows
 
         for f in live:
-            self.db.add(
+            self.db_session.add(
                 TargetField(
-                    table_name=self.table_name,
+                    table_name=f.table_name,
                     field_name=f.field_name,
                     data_type=f.data_type,
                     max_length=f.max_length,
@@ -150,6 +152,7 @@ class SchemaDriftService:
                     default_value=f.default_value,
                 )
             )
+        self.db_session.flush()
 
     def _empty_result(self, now: datetime, reason: str) -> Dict[str, Any]:
         """Uniform empty result shape for short-circuit paths."""
