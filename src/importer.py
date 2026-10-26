@@ -464,17 +464,27 @@ class MyfactoryImporter:
             ({", ".join(f":{c}" for c in avt_columns)})
         """)
 
-        update_pt_stmt = text(f"""
-            UPDATE [{self.products_table}]
-            SET {
-                ", ".join(
-                    f"[{column}] = :{column}"
-                    for column in update_pt_columns
-                )
-            },
-            [ChangeDate] = GETDATE()
-            WHERE [ProductID] = :ProductID
-        """)
+        update_pt_columns_str = ", ".join(
+            f"[{column}] = :{column}" for column in update_pt_columns
+        )
+
+        if update_pt_columns:
+            update_pt_columns_str = ", ".join(
+                f"[{column}] = :{column}" for column in update_pt_columns
+            )
+
+            update_pt_stmt = text(f"""
+                UPDATE [{self.products_table}]
+                SET {update_pt_columns_str},
+                    [ChangeDate] = GETDATE()
+                WHERE [ProductID] = :ProductID
+            """)
+        else:
+            update_pt_stmt = text(f"""
+                UPDATE [{self.products_table}]
+                SET [ChangeDate] = GETDATE()
+                WHERE [ProductID] = :ProductID
+            """)
 
         # Used to determine whether an attribute row already exists for
         # an existing product.
