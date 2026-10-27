@@ -147,6 +147,7 @@ async def mappings_page(request: Request, supplier_id: int):
             "header_row_index": supplier.get("header_row_index"),
             "sheet_name": supplier.get("sheet_name"),
             "delimiter": supplier.get("delimiter"),
+            "memo": supplier.get("memo"),
         },
     )
 
@@ -351,11 +352,11 @@ async def get_suppliers(supplier_id: int, active_only: bool = False):
         "supplier_id": supplier_id,
         "supplier_name": supplier_name,
         "total_mappings": len(mappings),
+        "memo": supplier.memo if supplier else None,
         "mappings": mappings,  # {source_field: target_field}
     }
 
 
-# accept optional flag argument
 @router.post("/api/suppliers/{supplier_name:str}")
 async def save_supplier(
     supplier_name: str,
@@ -372,6 +373,7 @@ async def save_supplier(
         header_row_index=payload.header_row_index,
         sheet_name=payload.sheet_name,
         delimiter=payload.delimiter,
+        memo=payload.memo,
     )
     return {
         "status": "created",

@@ -21,32 +21,51 @@ function getSelectedSupplierConfig() {
     headerRowIndex: opt.dataset.headerRowIndex ?? '1',
     sheetName: opt.dataset.sheetName ?? '',
     delimiter: opt.dataset.delimiter ?? ',',
+    memo: opt.dataset.memo || '',
   };
   return supplierCfg;
 }
 
 function renderSupplierConfigHint() {
   const hint = document.getElementById('supplierConfigHint');
-  if (!hint) return;
+  const memoBox = document.getElementById('supplierMemoBox');
+  const memoText = document.getElementById('supplierMemoText');
 
-  getSelectedSupplierConfig();
-  if (!supplierCfg) {
-    hint.innerHTML = '';
-    hint.style.display = 'none';
+  const cfg = getSelectedSupplierConfig();
+
+  // ---- No supplier selected → hide everything ----
+  if (!cfg) {
+    if (hint) {
+      hint.innerHTML = '';
+      hint.style.display = 'none';
+    }
+    if (memoBox) memoBox.style.display = 'none';
     return;
   }
 
-  const bits = [];
-  bits.push(`<span class="badge bg-secondary">Header row: ${supplierCfg.headerRowIndex}</span>`);
-  if (supplierCfg.sheetName) {
-    bits.push(`<span class="badge bg-info text-dark">Sheet: ${supplierCfg.sheetName}</span>`);
+  // ---- Config badges ----
+  if (hint) {
+    const bits = [];
+    bits.push(`<span class="badge bg-secondary">Header row: ${cfg.headerRowIndex}</span>`);
+    if (cfg.sheetName) {
+      bits.push(`<span class="badge bg-info text-dark">Sheet: ${cfg.sheetName}</span>`);
+    }
+    bits.push(`<span class="badge bg-light text-dark border">Delimiter: <code>${cfg.delimiter}</code></span>`);
+
+    hint.innerHTML = bits.join(' ');
+    hint.style.display = 'block';
   }
-  bits.push(`<span class="badge bg-light text-dark border">Delimiter: <code>${supplierCfg.delimiter}</code></span>`);
 
-  hint.innerHTML = bits.join(' ');
-  hint.style.display = 'block';
+  // ---- Read-only memo ----
+  if (memoBox && memoText) {
+    if (cfg.memo && cfg.memo.trim()) {
+      memoText.textContent = cfg.memo;   // textContent → no HTML injection
+      memoBox.style.display = 'block';
+    } else {
+      memoBox.style.display = 'none';
+    }
+  }
 }
-
 // ============================================================
 // DOMContentLoaded
 // ============================================================

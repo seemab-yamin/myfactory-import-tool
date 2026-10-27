@@ -267,6 +267,7 @@ async function updateSource() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', async function () {
     renderMappingUI();
+    updateMappingNotesCounter();
     if (fileInputInput) {
         fileInputInput.addEventListener('change', handleFileChange);
     }

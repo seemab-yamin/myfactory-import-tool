@@ -455,6 +455,7 @@ function resetForm() {
 // ============================================================
 document.addEventListener('DOMContentLoaded', async function () {
     await fetchAllSuppliers();
+    updateMappingNotesCounter();
 
     if (supplierNameInput) {
         supplierNameInput.addEventListener('input', checkSupplierName);

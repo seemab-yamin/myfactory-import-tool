@@ -10,27 +10,43 @@
   <div id="status"></div>
 
   {# ── Supplier dropdown ── #}
-  <div class="form-group">
-    <span class="text-muted" style="color: #6c757d;">Disabled suppliers are not available for import because their mappings are not configured completely. Please configure the mappings before using them.</span>
-      <br>
-    <label for="supplierName">Supplier:</label>
-    <select id="supplierName" class="form-select" style="width:auto; display:inline-block;">
-      <option value="">— select —</option>
-      {% for s in suppliers %}
-        <option value="{{ s[0] }}"
-                data-supplier-id="{{ s[0] }}"
-                data-supplier-name="{{ s[1] }}"
-                data-header-row-index="{{ s[8] if s[8] is not none else 1 }}"
-                data-sheet-name="{{ s[9] or '' }}"
-                data-delimiter="{{ s[10] or ',' }}"
-                {{ 'disabled' if s[7] == 1 else '' }}
-                >
-          {{ s[1] }}
-        </option>
-      {% endfor %}
-    </select>
-    <div id="supplierConfigHint" class="mt-2" style="display:none;"></div>
+<div class="form-group">
+  <span class="text-muted" style="color: #6c757d;">
+    Disabled suppliers are not available for import because their mappings are not configured completely.
+    Please configure the mappings before using them.
+  </span>
+  <br>
+
+  <label for="supplierName">Supplier:</label>
+  <select id="supplierName" class="form-select" style="width:auto; display:inline-block;">
+    <option value="">— select —</option>
+    {% for s in suppliers %}
+      <option value="{{ s[0] }}"
+              data-supplier-id="{{ s[0] }}"
+              data-supplier-name="{{ s[1] }}"
+              data-header-row-index="{{ s[8] if s[8] is not none else 1 }}"
+              data-sheet-name="{{ s[9] or '' }}"
+              data-delimiter="{{ s[10] or ',' }}"
+              data-memo="{{ s[-1] or '' }}"
+              {{ 'disabled' if s[7] == 1 else '' }}>
+        {{ s[1] }}
+      </option>
+    {% endfor %}
+  </select>
+
+  <div id="supplierConfigHint" class="mt-2" style="display:none;"></div>
+
+  {# ── Read-only supplier memo ── #}
+  <div id="supplierMemoBox" class="alert alert-light border mt-3 mb-0" style="display:none;">
+    <div class="d-flex align-items-start gap-2">
+      <i class="bi bi-journal-text text-muted mt-1"></i>
+      <div class="flex-grow-1">
+        <div class="small text-muted fw-semibold mb-1">Mapping notes</div>
+        <div id="supplierMemoText" class="small" style="white-space:pre-wrap;"></div>
+      </div>
+    </div>
   </div>
+</div>
 
   {# ── Options ── #}
   <div class="form-group">

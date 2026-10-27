@@ -24,6 +24,21 @@
             <div id="supplierNameFeedback" class="invalid-feedback"></div>
             <div class="form-text">This name must be unique and will be used to identify this supplier in imports.</div>
           </div>
+
+          <!-- ===== Mapping Notes ===== -->
+          <div class="col-md-6">
+            <label for="mappingNotes" class="form-label">
+              Mapping notes
+              <span class="text-muted small">(optional)</span>
+            </label>
+            <textarea id="mappingNotes" class="form-control" rows="4" maxlength="1000" placeholder="e.g., BaseUnit defaults to Pcs; Price columns use EUR; Weight is in KG." oninput="updateMappingNotesCounter()"></textarea>
+            <div class="d-flex justify-content-between">
+              <div class="form-text">Free-form notes saved with this supplier's mapping for future reference.</div>
+              <div class="form-text">
+                <span id="mappingNotesCount">0</span> / <span id="mappingNotesMax">1000</span>
+              </div>
+            </div>
+          </div>
         </div>
       </div>
     </div>

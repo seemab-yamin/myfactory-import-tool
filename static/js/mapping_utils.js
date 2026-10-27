@@ -59,6 +59,13 @@ async function fetchTargetSchema(refreshCache = false) {
     }
 }
 
+function updateMappingNotesCounter() {
+    const notes = document.getElementById('mappingNotes');
+    const count = document.getElementById('mappingNotesCount');
+    if (!notes || !count) return;
+    count.textContent = notes.value.length;
+}
+
 // ============================================================
 // GET PAGE DATA (from show_mapping.html)
 // ============================================================
@@ -729,6 +736,10 @@ async function saveMappings() {
         ? (delimiterInput.value.trim() || ',')
         : (pageData?.delimiter ?? window.parsedDelimiter ?? ',');
 
+    // -- memo (optional)
+    const memoInput = document.getElementById('mappingNotes');
+    const memo = memoInput ? memoInput.value.trim() : '';
+
     // ============================================================
     // Step 4: Collect current state from UI
     // ============================================================
@@ -821,6 +832,7 @@ async function saveMappings() {
         sheet_name: sheetName,
         header_row_index: Number.isInteger(headerRowIndex) ? headerRowIndex : 1,
         delimiter: delimiter,
+        memo: memo
     };
 
     // ============================================================

@@ -6,69 +6,51 @@
 {% block content %}
   <div id="detailView">
     <div class="card">
-      <div class="card-header bg-light d-flex justify-content-between align-items-center">
-        <div>
-          <a href="/mappings-list" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</a>
-          <span id="detailTitle" class="ms-3 d-inline-flex align-items-center gap-2 flex-wrap">
-  <strong>{{ supplier_name or 'Supplier #' + supplier_id|string }}</strong>
+      <div class="card-header bg-light justify-content-between align-items-center">
+        <div class="card-header bg-light">
+          <div class="d-flex justify-content-between align-items-start gap-3">
+            <!-- LEFT: Title, back link, config inputs -->
+            <div class="flex-grow-1">
+              <div class="d-flex align-items-center flex-wrap gap-2 mb-2">
+                <a href="/mappings-list" class="btn btn-sm btn-outline-secondary"><i class="bi bi-arrow-left"></i> Back</a>
+                <span id="detailTitle" class="d-inline-flex align-items-center gap-2 flex-wrap">
+                  <strong>{{ supplier_name or 'Supplier #' ~ supplier_id }}</strong>
 
-  {# ✅ Editable: Sheet Name #}
-  <div class="input-group input-group-sm" style="width: auto;">
-    <span class="input-group-text" title="Source sheet">
-      <i class="bi bi-file-earmark-spreadsheet"></i>
-    </span>
-    <input type="text"
-           class="form-control form-control-sm"
-           id="sheetNameInput"
-           placeholder="Sheet name"
-           value="{{ sheet_name or '' }}"
-           style="width: 140px;">
-  </div>
+                  <div class="input-group input-group-sm" style="width:auto;">
+                    <span class="input-group-text" title="Source sheet"><i class="bi bi-file-earmark-spreadsheet"></i></span>
+                    <input type="text" class="form-control form-control-sm" id="sheetNameInput" placeholder="Sheet name" value="{{ sheet_name or '' }}" style="width:140px;" />
+                  </div>
 
-  {# ✅ Editable: Header Row Index #}
-  <div class="input-group input-group-sm" style="width: auto;">
-    <span class="input-group-text" title="Header row index">
-      <i class="bi bi-list-ol"></i>
-    </span>
-    <input type="number"
-           class="form-control form-control-sm"
-           id="headerRowInput"
-           min="1"
-           placeholder="1"
-           value="{{ header_row_index if header_row_index is not none else 1 }}"
-           style="width: 80px;">
-  </div>
+                  <div class="input-group input-group-sm" style="width:auto;">
+                    <span class="input-group-text" title="Header row index"><i class="bi bi-list-ol"></i></span>
+                    <input type="number" class="form-control form-control-sm" id="headerRowInput" min="1" placeholder="1" value="{{ header_row_index or 1 }}" style="width:80px;" />
+                  </div>
 
-  {# ✅ Editable: Delimiter #}
-  <div class="input-group input-group-sm" style="width: auto;">
-    <span class="input-group-text" title="Delimiter">
-      <i class="bi bi-asterisk"></i>
-    </span>
-    <input type="text"
-           class="form-control form-control-sm"
-           id="delimiterInput"
-           maxlength="5"
-           placeholder="{{ delimiter }}"
-           value="{{ delimiter }}"
-           style="width: 60px;">
-  </div>
+                  <div class="input-group input-group-sm" style="width:auto;">
+                    <span class="input-group-text" title="Delimiter"><i class="bi bi-asterisk"></i></span>
+                    <input type="text" class="form-control form-control-sm" id="delimiterInput" maxlength="5" placeholder="," value="{{ delimiter or ',' }}" style="width:60px;" />
+                  </div>
 
+                  <small class="text-muted" title="Created at"><i class="bi bi-calendar-plus"></i> {{ created_at or '—' }}</small>
+                  <small class="text-muted" title="Last updated"><i class="bi bi-calendar-check"></i> {{ updated_at or '—' }}</small>
+                </span>
+              </div>
 
-  {% if created_at %}
-    <small class="text-muted" title="Created at">
-      <i class="bi bi-calendar-plus"></i> {{ created_at[:19]|replace('T', ' ') }}
-    </small>
-  {% endif %}
-
-  {% if updated_at %}
-    <small class="text-muted" title="Last updated">
-      <i class="bi bi-calendar-check"></i> {{ updated_at[:19]|replace('T', ' ') }}
-    </small>
-  {% endif %}
-</span>
-        </div>
-        <div>
-          <button class="btn btn-sm btn-outline-danger" onclick="deleteSupplier({{ supplier_id }}, '{{ supplier_name or supplier_id }}')"><i class="bi bi-trash"></i> Delete Supplier</button>
+              <!-- Mapping notes -->
+              <div>
+                <label for="mappingNotes" class="form-label small mb-1">
+                  <i class="bi bi-journal-text"></i> Mapping notes
+                  <span class="text-muted">(optional)</span>
+                </label>
+                <textarea id="mappingNotes" class="form-control form-control-sm" rows="2" maxlength="1000" placeholder="e.g., BaseUnit defaults to Pcs; Price columns use EUR; Weight is in KG." oninput="updateMappingNotesCounter()">{{ memo or '' }}</textarea>
+                <div class="d-flex justify-content-between">
+                  <small class="text-muted">Saved with this supplier's mapping.</small>
+                  <small class="text-muted"><span id="mappingNotesCount">0</span> / 1000</small>
+                </div>
+              </div>
+              <button class="btn btn-success" onclick="saveMappings()" id="saveMetaData"><i class="bi bi-save"></i> Save Meta Data</button>
+            </div>
+          </div>
         </div>
       </div>
       <div class="card-body">
@@ -80,22 +62,15 @@
           </p>
 
           <div class="mb-3">
-            <button
-              class="btn btn-outline-primary w-100 text-start"
-              type="button"
-              data-bs-toggle="collapse"
-              data-bs-target="#sourceFieldsSync"
-              aria-expanded="false"
-              aria-controls="sourceFieldsSync"
-            >
-              <i class="bi bi-arrow-repeat"></i>
-              Update Source Fields
-            </button>
+            <div class="d-flex gap-2 justify-content-between">
+              <button type="button" class="btn btn-outline-primary" data-bs-toggle="collapse" data-bs-target="#sourceFieldsSync" aria-expanded="false" aria-controls="sourceFieldsSync"><i class="bi bi-arrow-repeat"></i> Update Source Fields</button>
+
+              <button type="button" class="btn btn-sm btn-outline-danger" onclick="deleteSupplier({{ supplier_id }}, '{{ supplier_name or supplier_id }}')"><i class="bi bi-trash"></i> Delete Supplier</button>
+            </div>
 
             <div class="collapse mt-2" id="sourceFieldsSync">
               <div class="card card-body">
                 <div class="card-body">
-                  
                   <!-- Row 1: File picker -->
                   <div class="row align-items-end mb-3">
                     <div class="col-md-6">
@@ -104,7 +79,7 @@
                       <div id="fileTypeHint" class="form-text"></div>
                     </div>
                   </div>
-                  
+
                   <!-- Row 2: Sheet selector (Excel only, hidden by default) -->
                   <div class="row align-items-end mb-3" id="sheetSelectorRow" style="display:none;">
                     <div class="col-md-5">
@@ -119,53 +94,53 @@
                     </div>
                   </div>
 
-        <!-- Row 3: Header row index -->
-        <div class="row align-items-end mb-3">
-          <div class="col-md-3">
-            <label for="headerRowIndex" class="form-label">Header Row Number</label>
-            <input type="number" id="headerRowIndex" class="form-control" value="1" min="1" />
-            <div class="form-text">Row where headers start (default 1)</div>
-          </div>
-        </div>
+                  <!-- Row 3: Header row index -->
+                  <div class="row align-items-end mb-3">
+                    <div class="col-md-3">
+                      <label for="headerRowIndex" class="form-label">Header Row Number</label>
+                      <input type="number" id="headerRowIndex" class="form-control" value="1" min="1" />
+                      <div class="form-text">Row where headers start (default 1)</div>
+                    </div>
+                  </div>
 
-        <!-- Row 3b: Delimiter (CSV only) -->
-        <div class="row align-items-end mb-3" id="delimiterRow" style="display:none;">
-          <div class="col-md-3">
-            <label for="delimiterChar" class="form-label">Delimiter</label>
-            <select id="delimiterChar" class="form-select">
-              <option selected value=",">Comma (,)</option>
-              <option value=";">Semicolon (;)</option>
-              <option value="&#9;">Tab (\t)</option>
-              <option value="|">Pipe (|)</option>
-            </select>
-            <div class="form-text">Only used for CSV files</div>
-          </div>
-        </div>
+                  <!-- Row 3b: Delimiter (CSV only) -->
+                  <div class="row align-items-end mb-3" id="delimiterRow" style="display:none;">
+                    <div class="col-md-3">
+                      <label for="delimiterChar" class="form-label">Delimiter</label>
+                      <select id="delimiterChar" class="form-select">
+                        <option selected value=",">Comma (,)</option>
+                        <option value=";">Semicolon (;)</option>
+                        <option value="&#9;">Tab (\t)</option>
+                        <option value="|">Pipe (|)</option>
+                      </select>
+                      <div class="form-text">Only used for CSV files</div>
+                    </div>
+                  </div>
 
-        <!-- Row 4: Parse button -->
-        <div class="row align-items-end">
-          <div class="col-md-3">
-            <button id="parseFileBtn" class="btn btn-primary" onclick="parseRender()" disabled><i class="bi bi-upload"></i> Upload &amp; Parse</button>
-          </div>
-          <div class="col-md-3">
-            <button id="updateSourceBtn" class="btn btn-secondary" onclick="updateSource()"><i class="bi bi-upload"></i>Update Source Data</button>
-          </div>
-          <div class="col-md-6">
-            <div id="updateSourceStatus" class="form-text"></div>
-          </div>
-        </div>
+                  <!-- Row 4: Parse button -->
+                  <div class="row align-items-end">
+                    <div class="col-md-3">
+                      <button id="parseFileBtn" class="btn btn-primary" onclick="parseRender()" disabled><i class="bi bi-upload"></i> Upload &amp; Parse</button>
+                    </div>
+                    <div class="col-md-3">
+                      <button id="updateSourceBtn" class="btn btn-secondary" onclick="updateSource()"><i class="bi bi-upload"></i>Update Source Data</button>
+                    </div>
+                    <div class="col-md-6">
+                      <div id="updateSourceStatus" class="form-text"></div>
+                    </div>
+                  </div>
 
-        <!-- Preview table -->
-        <div id="filePreview" class="mt-3" style="display:none;">
-          <h6>📄 File Preview (first 5 rows)</h6>
-          <div class="table-responsive">
-            <table id="previewTable" class="table table-sm table-bordered table-striped">
-              <thead id="previewHead"></thead>
-              <tbody id="previewBody"></tbody>
-            </table>
-          </div>
-        </div>
-      </div>
+                  <!-- Preview table -->
+                  <div id="filePreview" class="mt-3" style="display:none;">
+                    <h6>📄 File Preview (first 5 rows)</h6>
+                    <div class="table-responsive">
+                      <table id="previewTable" class="table table-sm table-bordered table-striped">
+                        <thead id="previewHead"></thead>
+                        <tbody id="previewBody"></tbody>
+                      </table>
+                    </div>
+                  </div>
+                </div>
               </div>
             </div>
           </div>
@@ -217,7 +192,7 @@
 {% endblock %}
 
 {% block scripts %}
-<script src="{{ url_for('static', path='js/render_mapping.js') }}"></script>
-<script src="{{ url_for('static', path='js/mapping_utils.js') }}"></script>
-    <script src="{{ url_for('static', path='js/show_mapping.js') }}"></script>
-  {% endblock %}
+  <script src="{{ url_for('static', path='js/render_mapping.js') }}"></script>
+  <script src="{{ url_for('static', path='js/mapping_utils.js') }}"></script>
+  <script src="{{ url_for('static', path='js/show_mapping.js') }}"></script>
+{% endblock %}

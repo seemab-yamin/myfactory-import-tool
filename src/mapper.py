@@ -1,7 +1,7 @@
 """Dynamic field mapping for Myfactory import with CRUD operations."""
 
 from datetime import datetime, timezone
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any
 
 import pandas as pd
 from rapidfuzz import fuzz
@@ -22,15 +22,14 @@ class FieldMapper:
         mapper = FieldMapper()
 
         # Get mappings
-        mappings = mapper.get_mappings(1)
 
         # Apply mapping
         df_mapped = mapper.apply_mapping(df, mappings)
     """
 
     def __init__(self):
-        self._cache: Dict[str, Dict[str, str]] = {}
-        self._supplier_cache: Dict[str, Optional[int]] = {}
+        self._cache: dict[str, dict[str, str]] = {}
+        self._supplier_cache: dict[str, int | None] = {}
 
     # ========== CRUD Operations ==========
     def get_mappings(self, supplier_id: int, active_only: bool = True):
@@ -40,13 +39,14 @@ class FieldMapper:
         Reads from Supplier.mappings JSON (dict keyed by target_field_name).
 
         Returns:
-            List of dicts with keys:
+            list of dicts with keys:
                 - source_field: str | None
                 - target_field: str (target field name — the dict key)
                 - is_mandatory: bool
                 - is_db_required: bool
                 - is_active: bool
                 - prepopulated_value: str | None
+                - memo: str | None
         """
 
         cache_key = f"{supplier_id}_{active_only}"
@@ -84,9 +84,9 @@ class FieldMapper:
 
     def get_mapping_dict(
         self, supplier_id: int, active_only: bool = True
-    ) -> Dict[str, Dict[str, Any]]:
-        raw = self.get_mappings(supplier_id, active_only)
-        return {m["target_field"]: m for m in raw if m.get("target_field")}
+    ) -> dict[str, dict[str, Any]]:
+        raw_mappings = self.get_mappings(supplier_id, active_only)
+        return {m["target_field"]: m for m in raw_mappings if m.get("target_field")}
 
     def mapping_name_exists(self, mapping_name: str) -> bool:
         """Check if a supplier has any mappings (lightweight with LIMIT 1)."""
@@ -103,15 +103,18 @@ class FieldMapper:
     def save_mappings(
         self,
         supplier_name: str,
-        source_fields: List[str],
-        mappings: List[dict],
-        header_row_index: Optional[int] = None,
-        sheet_name: Optional[str] = None,
+        source_fields: list[str],
+        mappings: list[dict],
+        header_row_index: int | None = None,
+        sheet_name: str | None = None,
         delimiter: str = ",",
         is_new_supplier: bool = False,
+        memo: str | None = None,
     ):
 
-        # ✅ Normalize List[dict] → dict keyed by target_field_name
+        normalized_memo = None if memo is None else memo.strip() or None
+
+        # ✅ Normalize list[dict] → dict keyed by target_field_name
         mappings_dict = (
             {m["target_field_name"]: m for m in mappings if m.get("target_field_name")}
             if mappings
@@ -133,6 +136,7 @@ class FieldMapper:
                     mappings=mappings_dict,
                     header_row_index=header_row_index,
                     sheet_name=sheet_name,
+                    memo=normalized_memo,
                     delimiter=delimiter,
                 )
                 session.add(sup)
@@ -178,6 +182,8 @@ class FieldMapper:
                     sup.header_row_index = header_row_index
                 if sheet_name:
                     sup.sheet_name = sheet_name
+                if memo is not None:
+                    sup.memo = normalized_memo
                 if delimiter:
                     sup.delimiter = delimiter
             logger.info(
@@ -190,9 +196,9 @@ class FieldMapper:
             # ✅ Commit
             try:
                 session.commit()
-            except Exception as e:
+            except Exception:
                 session.rollback()
-                raise e
+                raise
             # ✅ Clear caches
             self._cache.clear()
             self._supplier_cache.clear()
@@ -219,7 +225,7 @@ class FieldMapper:
             logger.info(f"Deleted supplier ID {supplier_id}")
             return True
 
-    def get_all_suppliers(self) -> List[str]:
+    def get_all_suppliers(self) -> list[str]:
         """Get list of all supplier names with mappings."""
         with local_session() as session:
             # fetch supplier id and name from Supplier table, ordered by name
@@ -237,12 +243,13 @@ class FieldMapper:
                     s.header_row_index,
                     s.sheet_name,
                     s.delimiter,
+                    s.memo,
                 )
                 for s in suppliers
             ]  # Convert to list of tuples
             return suppliers
 
-    def get_supplier_by_id(self, supplier_id: int) -> Optional[Dict[str, Any]]:
+    def get_supplier_by_id(self, supplier_id: int) -> dict[str, Any] | None:
         """
         Get supplier details by ID.
 
@@ -279,9 +286,10 @@ class FieldMapper:
                 "header_row_index": supplier.header_row_index,
                 "sheet_name": supplier.sheet_name,
                 "delimiter": supplier.delimiter,
+                "memo": supplier.memo,
             }
 
-    def get_source_fields(self, supplier_id: int) -> Optional[List[str]]:
+    def get_source_fields(self, supplier_id: int) -> list[str] | None:
         """
         Get the source fields (column headers) for a supplier.
 
@@ -289,8 +297,9 @@ class FieldMapper:
             supplier_id: ID of the supplier
 
         Returns:
-            List of column names, or None if supplier not found
+            list of column names, or None if supplier not found
         """
+
         with local_session() as session:
             supplier = (
                 session.query(Supplier).filter(Supplier.id == supplier_id).first()
@@ -301,13 +310,14 @@ class FieldMapper:
 
             return supplier.source_fields or []
 
-    def get_target_fields(self) -> List[Dict[str, Any]]:
+    def get_target_fields(self) -> list[dict[str, Any]]:
         """
         Get all available target fields from the target_fields table.
 
         Returns:
-            List of target field dicts with id, field_name, data_type
+            list of target field dicts with id, field_name, data_type
         """
+
         with local_session() as session:
             target_fields = (
                 session.query(TargetField).order_by(TargetField.field_name).all()
@@ -322,143 +332,15 @@ class FieldMapper:
                 for tf in target_fields
             ]
 
-    def sync_supplier_excel(
-        self,
-        supplier_id: int,
-        new_source_columns: list[str],
-    ) -> dict:
-        """
-        Compare new file columns against saved supplier mappings.
-
-        Does not modify or save anything.
-        """
-
-        supplier = self.get_supplier_by_id(supplier_id)
-
-        if supplier is None:
-            raise ValueError(f"Supplier with ID {supplier_id} not found")
-
-        mappings = supplier.get("mappings") or {}
-
-        # Deduplicate while preserving file column order.
-        new_columns = list(
-            dict.fromkeys(
-                column
-                for column in new_source_columns
-                if isinstance(column, str) and column.strip()
-            )
-        )
-
-        new_column_set = set(new_columns)
-
-        kept = []
-        broken = []
-
-        # Track every source column currently assigned to a target.
-        existing_source_columns = set()
-
-        for target_field, mapping in mappings.items():
-            source_column = mapping.get("source_field")
-
-            if not source_column:
-                continue
-
-            existing_source_columns.add(source_column)
-
-            if source_column in new_column_set:
-                kept.append(
-                    {
-                        "target_field": target_field,
-                        "source_column": source_column,
-                    }
-                )
-                continue
-
-            match = self.auto_match_fields(
-                new_columns,
-                [source_column],
-            )
-
-            suggested_source = None
-
-            if match:
-                suggestion = match.get(source_column)
-                if suggestion:
-                    suggested_source = suggestion.get("source_column")
-
-            broken.append(
-                {
-                    "target_field": target_field,
-                    "old_source": source_column,
-                    "suggested_source": suggested_source,
-                    "is_mandatory": mapping.get("is_mandatory", False),
-                    "is_db_required": mapping.get("is_db_required", False),
-                }
-            )
-
-        new = [
-            column for column in new_columns if column not in existing_source_columns
-        ]
-
-        return {
-            "kept": kept,
-            "broken": broken,
-            "new": new,
-            "source_columns": new_columns,
-        }
-
-    def apply_sync(
-        self,
-        supplier_id: int,
-        resolved_mappings: list[dict],
-    ) -> bool:
-        """Apply resolved Excel source mappings using the existing save flow."""
-
-        # Validate that every mapping has been resolved.
-        broken = [
-            mapping for mapping in resolved_mappings if not mapping.get("source_column")
-        ]
-
-        if broken:
-            raise ValueError(
-                f"{len(broken)} mappings unresolved: "
-                f"{[m['target_field'] for m in broken]}"
-            )
-
-        supplier = self.get_supplier_by_id(supplier_id)
-
-        if supplier is None:
-            raise ValueError(f"Supplier with ID {supplier_id} not found")
-
-        mappings = [
-            {
-                **mapping,
-                "source_field": mapping["source_column"],
-                "target_field_name": mapping["target_field"],
-            }
-            for mapping in resolved_mappings
-        ]
-
-        self.save_mappings(
-            supplier_name=supplier["name"],
-            source_fields=supplier.get("source_fields") or [],
-            mappings=mappings,
-            header_row_index=supplier.get("header_row_index"),
-            sheet_name=supplier.get("sheet_name"),
-            delimiter=supplier.get("delimiter", ","),
-        )
-
-        return True
-
     # ============================================================
     # AUTO-MATCH FIELDS
     # ============================================================
 
     def auto_match_fields(
         self,
-        source_columns: List[str],
-        target_fields: List[str],
-    ) -> Dict[str, Dict[str, Any]]:
+        source_columns: list[str],
+        target_fields: list[str],
+    ) -> dict[str, dict[str, Any]]:
         """
         Deterministic + fuzzy field auto-matching.
 
@@ -498,7 +380,7 @@ class FieldMapper:
 
         # ---------- Deduplicate sources (preserve order, first wins) ----------
         seen = set()
-        unique_sources: List[str] = []
+        unique_sources: list[str] = []
         for src in source_columns:
             if not isinstance(src, str) or not src.strip():
                 continue
@@ -511,7 +393,7 @@ class FieldMapper:
         if not unique_sources:
             return {}
 
-        suggestions: Dict[str, Dict[str, Any]] = {}
+        suggestions: dict[str, dict[str, Any]] = {}
         available_sources = list(unique_sources)
 
         # ---------- Pass 1: Exact match (case-sensitive) ----------
@@ -526,7 +408,7 @@ class FieldMapper:
 
         # ---------- Pass 2: Case-insensitive ----------
         if available_sources:
-            lower_map: Dict[str, str] = {}
+            lower_map: dict[str, str] = {}
             for src in available_sources:
                 lower_map.setdefault(src.lower(), src)  # first wins
 
@@ -549,7 +431,7 @@ class FieldMapper:
             def normalize(s: str) -> str:
                 return s.strip().replace(" ", "_").lower()
 
-            norm_map: Dict[str, str] = {}
+            norm_map: dict[str, str] = {}
             for src in available_sources:
                 norm_map.setdefault(normalize(src), src)
 
@@ -576,7 +458,7 @@ class FieldMapper:
             threshold = _dynamic_threshold(target)
             t_norm = _normalize_for_fuzzy(target)
 
-            scores: List[Tuple[float, str]] = []
+            scores: list[tuple[float, str]] = []
             for src in available_sources:
                 score = fuzz.ratio(t_norm, _normalize_for_fuzzy(src)) / 100.0
                 scores.append((score, src))
@@ -619,14 +501,14 @@ class FieldMapper:
     # ========== Mapping Application ==========
 
     def apply_mapping(
-        self, df: pd.DataFrame, mapping: Dict[str, str], strict: bool = False
+        self, df: pd.DataFrame, mapping: dict[str, str], strict: bool = False
     ) -> pd.DataFrame:
         """
         Apply mapping to a DataFrame.
 
         Args:
             df: Input DataFrame
-            mapping: Dictionary mapping source_field -> target_field
+            mapping: dictionary mapping source_field -> target_field
             strict: If True, raise error on missing columns
 
         Returns:
@@ -684,7 +566,7 @@ class FieldMapper:
 
 # ========== Singleton Accessor ==========
 
-_mapper: Optional[FieldMapper] = None
+_mapper: FieldMapper | None = None
 
 
 def get_mapper() -> FieldMapper:
@@ -710,7 +592,7 @@ def sync_supplier_json(
     # 1. Removed fields
     # -------------------------------------------------------------------------
     for field in removed:
-        name = field.field_name
+        name = field.get("field_name")
 
         if name in mappings:
             del mappings[name]
@@ -720,18 +602,19 @@ def sync_supplier_json(
     # 2. Added fields
     # -------------------------------------------------------------------------
     for field in added:
-        name = field.field_name
+        name = field.get("field_name")
 
         mappings[name] = {
-            "target_field_name": field.field_name,
-            "target_field_id": field.id,
-            "data_type": field.data_type,
-            "max_length": field.max_length,
-            "is_nullable": field.is_nullable,
-            "is_identity": field.is_identity,
+            "target_field_id": field.get("target_field_id"),
+            "target_field_name": field.get("field_name"),
+            "source_field": field.get("field_name"),  # default to same name
+            "data_type": field.get("data_type"),
+            "max_length": field.get("max_length"),
+            "is_nullable": field.get("is_nullable"),
+            "is_identity": field.get("is_identity"),
             "is_active": True,
             "is_mandatory": False,
-            "is_db_required": not field.is_nullable,
+            "is_db_required": not field.get("is_nullable"),
             "prepopulated_value": "",
         }
 
@@ -752,15 +635,15 @@ def sync_supplier_json(
         # If there is no existing mapping, create it from the new schema.
         if old_mapping is None:
             mappings[name] = {
-                "target_field_name": new_field.field_name,
-                "target_field_id": new_field.id,
-                "data_type": new_field.data_type,
-                "max_length": new_field.max_length,
-                "is_nullable": new_field.is_nullable,
-                "is_identity": new_field.is_identity,
+                "target_field_name": new_field.get("field_name"),
+                "target_field_id": new_field.get("target_field_id"),
+                "data_type": new_field.get("data_type"),
+                "max_length": new_field.get("max_length"),
+                "is_nullable": new_field.get("is_nullable"),
+                "is_identity": new_field.get("is_identity"),
                 "is_active": True,
                 "is_mandatory": False,
-                "is_db_required": not new_field.is_nullable,
+                "is_db_required": not new_field.get("is_nullable"),
                 "prepopulated_value": "",
             }
             mutated = True
@@ -826,6 +709,20 @@ def sync_all_suppliers(schema_diff: dict, db_session) -> int:
 
     suppliers = db_session.query(Supplier).all()
     synced_count = 0
+
+    # ============================================================
+    # TODO: DEBUG — dump schema_diff to console
+    # ============================================================
+    import json as _json
+
+    def _orm_to_dict(o):
+        if hasattr(o, "__dict__"):
+            return {k: v for k, v in o.__dict__.items() if not k.startswith("_")}
+        return str(o)
+
+    # TODO
+    with open("schema_diff_debug.json", "w") as f:
+        _json.dump(schema_diff, f, indent=2, default=_orm_to_dict)
 
     try:
         for supplier in suppliers:

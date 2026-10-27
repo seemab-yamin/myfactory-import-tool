@@ -52,6 +52,7 @@ class Supplier(Base):
     delimiter: Mapped[str] = mapped_column(
         String(5), nullable=False, default=",", server_default=","
     )
+    memo: Mapped[Optional[str]] = mapped_column(String(1000), nullable=True)
 
     def __repr__(self) -> str:
         return f"<Supplier(id={self.id}, name={self.name})>"
@@ -70,6 +71,7 @@ class Supplier(Base):
             "header_row_index": self.header_row_index,
             "sheet_name": self.sheet_name,
             "delimiter": self.delimiter,
+            "memo": self.memo,
         }
 
 

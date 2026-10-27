@@ -87,14 +87,36 @@ class SchemaDriftService:
 
         # ---- 4. Refresh cache first ----
         if self.apply_sync:
-            diff["added"] = self._refresh_target_field_cache(live)
+            target_fields = self._refresh_target_field_cache(live)
         else:
             logger.info("Drift check: apply_sync=False — cache not refreshed")
+        persisted = {(f.table_name, f.field_name): f for f in target_fields}
+
+        added = [
+            {
+                "table_name": f.table_name,
+                "field_name": f.field_name,
+                "target_field_id": f.id,
+                "data_type": f.data_type,
+                "max_length": f.max_length,
+                "is_nullable": f.is_nullable,
+                "is_identity": f.is_identity,
+            }
+            for key in {(f.table_name, f.field_name) for f in diff["added"]}
+            if (f := persisted.get(key)) is not None
+        ]
+
+        removed = [
+            {"table_name": f.table_name, "field_name": f.field_name}
+            for f in diff["removed"]
+        ]
+
+        sync_payload = {"added": added, "removed": removed, "changed": diff["changed"]}
         # ---- 5. Sync suppliers ----
         suppliers_synced = 0
         if self.apply_sync and (removed_snapshot or added_snapshot or changed_snapshot):
             suppliers_synced = sync_all_suppliers(
-                diff,
+                sync_payload,
                 self.db_session,
             )
 
@@ -150,6 +172,15 @@ class SchemaDriftService:
         self,
         live: list[TargetField],
     ) -> list[TargetField]:
+        """
+        Delete and reinsert cached TargetField rows.
+
+        Returns:
+            The newly persisted TargetField objects (with IDs populated via flush()).
+            Caller is responsible for converting to dicts BEFORE commit(),
+            because commit() expires ORM attributes.
+        """
+
         tables = [
             self.products_table,
             self.attribute_values_table,
@@ -163,7 +194,7 @@ class SchemaDriftService:
         self.db_session.flush()
 
         # Insert current live schema.
-        persisted_fields = []
+        target_fields: list[TargetField] = []
 
         for field in live:
             cached_field = TargetField(
@@ -175,14 +206,12 @@ class SchemaDriftService:
                 is_identity=field.is_identity,
                 default_value=field.default_value,
             )
-
             self.db_session.add(cached_field)
-            persisted_fields.append(cached_field)
+            target_fields.append(cached_field)
 
-        # Flush so database-generated IDs are populated.
+        # Flush → DB-generated IDs populated on the objects.
         self.db_session.flush()
-
-        return persisted_fields
+        return target_fields
 
     def _empty_result(self, now: datetime, reason: str) -> dict[str, Any]:
         """Uniform empty result shape for short-circuit paths."""
